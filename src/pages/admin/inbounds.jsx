@@ -37,9 +37,27 @@ const TestAdminInbounds = () => {
     toast({ title: 'Inbound Updated', description: `Inbound ${inboundId} marked as initiated pickup.` });
   };
 
-  const handleConfirmPickup = (inboundId) => {
-    receiveInbound(inboundId);
+  const handleConfirmPickup = async (inboundId) => {
+    await receiveInbound(inboundId);
     toast({ title: 'Inbound Received', description: `Inbound ${inboundId} marked as confirmed pickup and inventory updated.` });
+
+    // If outbound, update inventory in backend
+    const inbound = inbounds.find(i => i.id === inboundId);
+    if (inbound && inbound.type === 'outbound') {
+      for (const item of inbound.items) {
+        // Find inventory item for this product and merchant
+        const inventoryItem = products.find(p => p.id === item.productId && p.merchantId === inbound.merchantId);
+        if (inventoryItem) {
+          const newQuantity = inventoryItem.quantity - item.quantity;
+          // PATCH request to update inventory in backend
+          await fetch(`/inventory/${inventoryItem.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quantity: newQuantity })
+          });
+        }
+      }
+    }
   };
 
   const handleReceiveInbound = (inboundId) => {

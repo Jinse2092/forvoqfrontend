@@ -111,6 +111,7 @@ const Register = () => {
     setLoading(true);
     try {
       const { confirmPassword, ...registrationData } = formData;
+      // registrationData now includes phoneNumber
       const success = await register(registrationData);
       if (success) {
         setMessage('Registration successful. Redirecting to login...');
@@ -177,6 +178,7 @@ const Register = () => {
                     placeholder="+1 234 567 8900"
                     value={formData.phoneNumber}
                     onChange={handleChange}
+                    required
                     className="text-sm sm:text-base px-3 py-2"
                   />
                 </div>
