@@ -93,7 +93,7 @@ const PaymentsPanel = () => {
   };
 
   return (
-    <div className="p-4 max-w-6xl mx-auto space-y-10">
+    <div className="p-2 sm:p-6 space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-start gap-8 mb-4">
         <div>
           <div className="text-lg font-semibold text-gray-700">Total Payment</div>

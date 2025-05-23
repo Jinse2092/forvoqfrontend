@@ -125,16 +125,16 @@ const Register = () => {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-primary/10 via-background to-secondary/10 p-4">
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-primary/10 via-background to-secondary/10 p-2 sm:p-4">
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <Card className="w-full max-w-md shadow-xl border-border/40">
+        <Card className="w-full max-w-md sm:max-w-md shadow-xl border-border/40 rounded-lg sm:rounded-xl mx-2 sm:mx-0">
           <CardHeader className="space-y-1 text-center">
-            <CardTitle className="text-2xl font-bold tracking-tight">Register Merchant Account</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-xl sm:text-2xl font-bold tracking-tight">Register Merchant Account</CardTitle>
+            <CardDescription className="text-sm sm:text-base">
               {step === 1 && 'Fill in your company details to get started.'}
               {step === 2 && 'Enter the OTP sent to your email.'}
               {step === 3 && 'Registration successful! Redirecting...'}
@@ -142,9 +142,9 @@ const Register = () => {
           </CardHeader>
           {step === 1 && (
             <form onSubmit={e => { e.preventDefault(); handleRequestOtp(); }}>
-              <CardContent className="grid gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="companyName">Company Name</Label>
+              <CardContent className="grid gap-3 sm:gap-4">
+                <div className="grid gap-1.5 sm:gap-2">
+                  <Label htmlFor="companyName" className="text-sm sm:text-base">Company Name</Label>
                   <Input
                     id="companyName"
                     name="companyName"
@@ -152,10 +152,11 @@ const Register = () => {
                     value={formData.companyName}
                     onChange={handleChange}
                     required
+                    className="text-sm sm:text-base px-3 py-2"
                   />
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="email">Email</Label>
+                <div className="grid gap-1.5 sm:gap-2">
+                  <Label htmlFor="email" className="text-sm sm:text-base">Email</Label>
                   <Input
                     id="email"
                     name="email"
@@ -164,10 +165,11 @@ const Register = () => {
                     value={formData.email}
                     onChange={handleChange}
                     required
+                    className="text-sm sm:text-base px-3 py-2"
                   />
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="phoneNumber">Phone Number</Label>
+                <div className="grid gap-1.5 sm:gap-2">
+                  <Label htmlFor="phoneNumber" className="text-sm sm:text-base">Phone Number</Label>
                   <Input
                     id="phoneNumber"
                     name="phoneNumber"
@@ -175,10 +177,11 @@ const Register = () => {
                     placeholder="+1 234 567 8900"
                     value={formData.phoneNumber}
                     onChange={handleChange}
+                    className="text-sm sm:text-base px-3 py-2"
                   />
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="password">Password</Label>
+                <div className="grid gap-1.5 sm:gap-2">
+                  <Label htmlFor="password" className="text-sm sm:text-base">Password</Label>
                   <Input
                     id="password"
                     name="password"
@@ -187,10 +190,11 @@ const Register = () => {
                     value={formData.password}
                     onChange={handleChange}
                     required
+                    className="text-sm sm:text-base px-3 py-2"
                   />
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <div className="grid gap-1.5 sm:gap-2">
+                  <Label htmlFor="confirmPassword" className="text-sm sm:text-base">Confirm Password</Label>
                   <Input
                     id="confirmPassword"
                     name="confirmPassword"
@@ -198,15 +202,16 @@ const Register = () => {
                     value={formData.confirmPassword}
                     onChange={handleChange}
                     required
+                    className="text-sm sm:text-base px-3 py-2"
                   />
                 </div>
-                {error && <p className="text-sm text-destructive text-center">{error}</p>}
+                {error && <p className="text-xs sm:text-sm text-destructive text-center">{error}</p>}
               </CardContent>
-              <CardFooter className="flex flex-col space-y-4">
-                <Button className="w-full" type="submit" disabled={loading}>
+              <CardFooter className="flex flex-col space-y-3 sm:space-y-4">
+                <Button className="w-full text-base sm:text-lg py-2 sm:py-3" type="submit" disabled={loading}>
                   {loading ? 'Sending OTP...' : 'Send OTP'}
                 </Button>
-                <p className="text-xs text-center text-muted-foreground">
+                <p className="text-xs sm:text-sm text-center text-muted-foreground">
                   Already have an account?{' '}
                   <Link to="/login" className="underline underline-offset-2 hover:text-primary">
                     Login here
@@ -217,9 +222,9 @@ const Register = () => {
           )}
           {step === 2 && (
             <form onSubmit={e => { e.preventDefault(); handleVerifyOtp(); }}>
-              <CardContent className="grid gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="otp">OTP</Label>
+              <CardContent className="grid gap-3 sm:gap-4">
+                <div className="grid gap-1.5 sm:gap-2">
+                  <Label htmlFor="otp" className="text-sm sm:text-base">OTP</Label>
                   <Input
                     id="otp"
                     type="text"
@@ -227,13 +232,14 @@ const Register = () => {
                     value={otp}
                     onChange={e => setOtp(e.target.value)}
                     required
+                    className="text-sm sm:text-base px-3 py-2"
                   />
                 </div>
-                {error && <p className="text-sm text-destructive text-center">{error}</p>}
-                {message && <p className="text-sm text-green-600 text-center">{message}</p>}
+                {error && <p className="text-xs sm:text-sm text-destructive text-center">{error}</p>}
+                {message && <p className="text-xs sm:text-sm text-green-600 text-center">{message}</p>}
               </CardContent>
-              <CardFooter className="flex flex-col space-y-4">
-                <Button className="w-full" type="submit" disabled={loading}>
+              <CardFooter className="flex flex-col space-y-3 sm:space-y-4">
+                <Button className="w-full text-base sm:text-lg py-2 sm:py-3" type="submit" disabled={loading}>
                   {loading ? 'Verifying OTP...' : 'Verify OTP'}
                 </Button>
               </CardFooter>
@@ -241,8 +247,8 @@ const Register = () => {
           )}
           {step === 3 && (
             <CardContent className="text-center">
-              <p className="text-green-600 mb-4">{message}</p>
-              <Button className="w-full" onClick={handleRegister} disabled={loading}>
+              <p className="text-green-600 mb-4 text-sm sm:text-base">{message}</p>
+              <Button className="w-full text-base sm:text-lg py-2 sm:py-3" onClick={handleRegister} disabled={loading}>
                 {loading ? 'Registering...' : 'Complete Registration'}
               </Button>
             </CardContent>

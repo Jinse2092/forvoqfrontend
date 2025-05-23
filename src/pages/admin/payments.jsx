@@ -159,7 +159,7 @@ const AdminPayments = () => {
   }, {});
 
   return (
-    <div className="p-6 space-y-8 bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <div className="p-2 sm:p-6 space-y-6">
       <h1 className="text-4xl font-extrabold mb-8 text-center text-gray-900 dark:text-gray-100">Merchant Payments</h1>
 
       <Card className="max-w-4xl mx-auto p-6 shadow-lg bg-white dark:bg-gray-800 rounded-lg">

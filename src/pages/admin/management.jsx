@@ -39,7 +39,7 @@ const AdminManagement = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="p-2 sm:p-6 space-y-6">
       <div className="flex justify-between items-center">
          <h1 className="text-3xl font-bold">Admin Management</h1>
           <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>

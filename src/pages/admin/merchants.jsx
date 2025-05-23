@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useInventory } from '@/context/inventory-context.jsx';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -35,7 +34,7 @@ const AdminMerchants = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="p-2 sm:p-6 space-y-6">
       <h1 className="text-3xl font-bold">Manage Merchants</h1>
        <Card>
         <CardHeader>
@@ -106,4 +105,3 @@ const AdminMerchants = () => {
 };
 
 export default AdminMerchants;
-  

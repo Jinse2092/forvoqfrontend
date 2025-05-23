@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -61,7 +60,7 @@ const Settings = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="p-2 sm:p-6 space-y-6">
       <h1 className="text-3xl font-bold">Settings</h1>
 
       <Card>
@@ -144,4 +143,3 @@ const Settings = () => {
 };
 
 export default Settings;
-  

@@ -246,7 +246,7 @@ const MerchantOrders = () => {
   };
 
   return (
-    <div className="p-4">
+    <div className="p-2 sm:p-6 space-y-6">
       <h1 className="text-3xl font-bold mb-4">Merchant: My Orders</h1>
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

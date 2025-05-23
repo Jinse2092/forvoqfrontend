@@ -293,7 +293,7 @@ const Products = () => {
             placeholder="Search products by name, SKU, or category..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="max-w-sm"
+            className="max-w-full sm:max-w-sm"
           />
         </CardHeader>
         <CardContent>

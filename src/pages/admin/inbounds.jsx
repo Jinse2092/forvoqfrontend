@@ -65,7 +65,7 @@ const TestAdminInbounds = () => {
   });
 
   return (
-    <div className="p-4">
+    <div className="p-2 sm:p-6 space-y-6">
       <h1 className="text-3xl font-bold mb-4">Inbound / Outbound Inventory</h1>
       <Card>
         <CardHeader>

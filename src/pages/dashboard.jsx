@@ -56,10 +56,10 @@ const Dashboard = () => {
   }).sort((a, b) => new Date(a.date) - new Date(b.date));
 
   return (
-    <div className="space-y-6">
+    <div className="p-2 sm:p-6 space-y-6">
       <h1 className="text-3xl font-bold">Dashboard</h1>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 dashboard-grid">
+      <div className="dashboard-grid gap-4 sm:gap-6">
         <Card className="card-hover gradient-bg">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Products</CardTitle>
@@ -102,7 +102,7 @@ const Dashboard = () => {
         </Card>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Recent Sales Trend</CardTitle>
