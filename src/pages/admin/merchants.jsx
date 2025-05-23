@@ -65,7 +65,7 @@ const AdminMerchants = () => {
                 <TableRow key={merchant.id}>
                 <TableCell className="font-medium">{merchant.companyName}</TableCell>
                 <TableCell>{merchant.email}</TableCell>
-                <TableCell>{merchant.phoneNumber || merchant.phone || '-'}</TableCell>
+                <TableCell>{merchant.phoneNumber || '-'}</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{merchant.id}</TableCell>
                 <TableCell className="text-right">
                      <AlertDialog>
