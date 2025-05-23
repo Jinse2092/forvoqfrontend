@@ -35,7 +35,12 @@ const AdjustStockForm = ({ currentItem, closeModal, getProductName }) => {
     await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${currentItem.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...currentItem, quantity: newQuantity, id: currentItem.id }),
+      body: JSON.stringify({ ...currentItem, quantity: newQuantity, id: currentItem.id, lastAdjustment: {
+        type: adjustData.type,
+        quantity: actualQuantityChange,
+        date: new Date().toISOString(),
+        notes: adjustData.notes || `${adjustData.type.charAt(0).toUpperCase() + adjustData.type.slice(1)}`
+      } }),
     });
 
     // Optionally update local state/UI as well
