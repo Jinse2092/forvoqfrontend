@@ -22,6 +22,8 @@ const AdjustStockForm = ({ currentItem, closeModal, getProductName }) => {
     const quantityChange = parseInt(adjustData.quantity);
     if (isNaN(quantityChange)) return;
 
+    // For outbound, copy how inbound works but decrement
+    // (inbound adds, outbound subtracts)
     let actualQuantityChange = quantityChange;
     if (["damage", "loss", "sale", "outbound"].includes(adjustData.type)) {
       actualQuantityChange = -Math.abs(quantityChange);
@@ -35,12 +37,17 @@ const AdjustStockForm = ({ currentItem, closeModal, getProductName }) => {
     await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${currentItem.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...currentItem, quantity: newQuantity, id: currentItem.id, lastAdjustment: {
-        type: adjustData.type,
-        quantity: actualQuantityChange,
-        date: new Date().toISOString(),
-        notes: adjustData.notes || `${adjustData.type.charAt(0).toUpperCase() + adjustData.type.slice(1)}`
-      } }),
+      body: JSON.stringify({
+        ...currentItem,
+        quantity: newQuantity,
+        id: currentItem.id,
+        lastAdjustment: {
+          type: adjustData.type,
+          quantity: actualQuantityChange,
+          date: new Date().toISOString(),
+          notes: adjustData.notes || `${adjustData.type.charAt(0).toUpperCase() + adjustData.type.slice(1)}`
+        }
+      }),
     });
 
     // Only update local state/UI, do not call addTransaction here if context already does it
