@@ -49,11 +49,16 @@ const TestAdminInbounds = () => {
         const inventoryItem = products.find(p => p.id === item.productId && p.merchantId === inbound.merchantId);
         if (inventoryItem) {
           const newQuantity = inventoryItem.quantity - item.quantity;
-          // PATCH request to update inventory in backend
-          await fetch(`/inventory/${inventoryItem.id}`, {
-            method: 'PATCH',
+          // PUT request to update inventory in backend (was PATCH)
+          await fetch(`/api/inventory/${inventoryItem.id}`, {
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ quantity: newQuantity })
+            body: JSON.stringify({ ...inventoryItem, quantity: newQuantity, id: inventoryItem.id, lastAdjustment: {
+              type: 'outbound',
+              quantity: -Math.abs(item.quantity),
+              date: new Date().toISOString(),
+              notes: 'Outbound inventory adjustment'
+            } })
           });
         }
       }
