@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogDescription } from '@/components/ui/dialog';
 
 const AdjustStockForm = ({ currentItem, closeModal, getProductName }) => {
-  const { updateInventoryItem, addTransaction } = useInventory();
+  const { updateInventoryItem } = useInventory();
   const [adjustData, setAdjustData] = useState({ quantity: '', type: 'adjustment', notes: '' });
 
   const handleAdjustInputChange = (e) => {
@@ -43,17 +43,8 @@ const AdjustStockForm = ({ currentItem, closeModal, getProductName }) => {
       } }),
     });
 
-    // Optionally update local state/UI as well
+    // Only update local state/UI, do not call addTransaction here if context already does it
     updateInventoryItem(currentItem.id, { quantity: newQuantity });
-    addTransaction({
-      id: `txn-${Date.now()}`,
-      merchantId: currentItem.merchantId,
-      productId: currentItem.productId,
-      type: adjustData.type,
-      quantity: actualQuantityChange,
-      date: new Date().toISOString().split('T')[0],
-      notes: adjustData.notes || `${adjustData.type.charAt(0).toUpperCase() + adjustData.type.slice(1)}`,
-    });
     closeModal();
   };
 
