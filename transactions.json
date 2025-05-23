@@ -1,0 +1,212 @@
+[
+  {
+    "merchantId": "merchant-1746810305657",
+    "inboundId": "inb-1746818629735",
+    "productId": null,
+    "type": "inbound_fee",
+    "quantity": 1,
+    "notes": "Inbound fee for shipment inb-1746818629735",
+    "amount": 1000,
+    "id": "txn-1746818653021",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "orderId": "ord-1746800853061",
+    "productId": null,
+    "type": "dispatch_fee",
+    "quantity": 1,
+    "notes": "Packing & Dispatch fee for order ord-1746800853061",
+    "amount": 9,
+    "id": "txn-1746816475953",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "orderId": "ord-1746789728853",
+    "productId": null,
+    "type": "dispatch_fee",
+    "quantity": 1,
+    "notes": "Packing & Dispatch fee for order ord-1746789728853",
+    "amount": 9,
+    "id": "txn-1746816136570",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "orderId": "ord-1746789728853",
+    "productId": null,
+    "type": "dispatch_fee",
+    "quantity": 1,
+    "notes": "Packing & Dispatch fee for order ord-1746789728853",
+    "amount": 9,
+    "id": "txn-1746816126941",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "orderId": "ord-1746789750375",
+    "productId": null,
+    "type": "dispatch_fee",
+    "quantity": 1,
+    "notes": "Packing & Dispatch fee for order ord-1746789750375",
+    "amount": 9,
+    "id": "txn-1746816075001",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "orderId": "ord-1746800853061",
+    "productId": null,
+    "type": "dispatch_fee",
+    "quantity": 1,
+    "notes": "Packing & Dispatch fee for order ord-1746800853061",
+    "amount": 9,
+    "id": "txn-1746816028582",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "orderId": "ord-1746803394106",
+    "productId": null,
+    "type": "dispatch_fee",
+    "quantity": 1,
+    "notes": "Packing & Dispatch fee for order ord-1746803394106",
+    "amount": 9,
+    "id": "txn-1746816027465",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "inboundId": "inb-1746815914673",
+    "productId": null,
+    "type": "inbound_fee",
+    "quantity": 1,
+    "notes": "Inbound fee for shipment inb-1746815914673",
+    "amount": 600,
+    "id": "txn-1746815947832",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "inboundId": "inb-1746814661513",
+    "productId": null,
+    "type": "inbound_fee",
+    "quantity": 1,
+    "notes": "Inbound fee for shipment inb-1746814661513",
+    "amount": 600,
+    "id": "txn-1746814713972",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "inboundId": "inb-1746814661513",
+    "productId": null,
+    "type": "inbound_fee",
+    "quantity": 1,
+    "notes": "Inbound fee for shipment inb-1746814661513",
+    "amount": 600,
+    "id": "txn-1746814713922",
+    "date": "2025-05-09"
+  },
+  {
+    "id": "txn-1746796891203",
+    "merchantId": "merchant-1746788896832",
+    "productId": "1746789389598",
+    "type": "found",
+    "quantity": 1,
+    "date": "2025-05-09",
+    "notes": "Found"
+  },
+  {
+    "id": "txn-1746796748096",
+    "merchantId": "merchant-1746788896832",
+    "productId": "1746789389598",
+    "type": "found",
+    "quantity": 2,
+    "date": "2025-05-09",
+    "notes": "Found"
+  },
+  {
+    "id": "txn-1746796511765",
+    "merchantId": "merchant-1746788896832",
+    "productId": "1746789389598",
+    "type": "found",
+    "quantity": 7,
+    "date": "2025-05-09",
+    "notes": "Found"
+  },
+  {
+    "id": "txn-1746796392732",
+    "merchantId": "merchant-1746788896832",
+    "productId": "1746789389598",
+    "type": "found",
+    "quantity": 10,
+    "date": "2025-05-09",
+    "notes": "Found"
+  },
+  {
+    "id": "txn-1746793525807",
+    "merchantId": "merchant-1746788896832",
+    "productId": "1746789389598",
+    "type": "adjustment",
+    "quantity": 100,
+    "date": "2025-05-09",
+    "notes": "Adjustment"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "orderId": "ord-1746789750375",
+    "productId": null,
+    "type": "dispatch_fee",
+    "quantity": 1,
+    "notes": "Packing & Dispatch fee for order ord-1746789750375",
+    "amount": 9,
+    "id": "txn-1746792381017",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "orderId": "ord-1746789750375",
+    "productId": null,
+    "type": "dispatch_fee",
+    "quantity": 1,
+    "notes": "Packing & Dispatch fee for order ord-1746789750375",
+    "amount": 9,
+    "id": "txn-1746790237623",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "inboundId": "inb-1746789007429",
+    "productId": null,
+    "type": "inbound_fee",
+    "quantity": 1,
+    "notes": "Inbound fee for shipment inb-1746789007429",
+    "amount": 600,
+    "id": "txn-1746789490758",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "inboundId": "inb-1746789130687",
+    "productId": null,
+    "type": "inbound_fee",
+    "quantity": 1,
+    "notes": "Inbound fee for shipment inb-1746789130687",
+    "amount": 600,
+    "id": "txn-1746789488803",
+    "date": "2025-05-09"
+  },
+  {
+    "merchantId": "merchant-1746788896832",
+    "inboundId": "inb-1746789404835",
+    "productId": null,
+    "type": "inbound_fee",
+    "quantity": 1,
+    "notes": "Inbound fee for shipment inb-1746789404835",
+    "amount": 730,
+    "id": "txn-1746789486958",
+    "date": "2025-05-09"
+  }
+]

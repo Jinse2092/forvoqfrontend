@@ -1,0 +1,30 @@
+[
+  {
+    "id": "merchant-1746810305657",
+    "role": "merchant",
+    "companyName": "luvwich",
+    "email": "luv@gmail.com",
+    "password": "123456"
+  },
+  {
+    "id": "merchant-1746788896832",
+    "role": "merchant",
+    "companyName": "bottle",
+    "email": "bottle@gmail.com",
+    "password": "123456"
+  },
+  {
+    "id": "admin-1746772527983",
+    "role": "admin",
+    "companyName": "jinse",
+    "email": "jinse@gmail.com",
+    "password": "123456"
+  },
+  {
+    "id": "superadmin-0",
+    "email": "leo112944@gmail.com",
+    "password": "pypyabcd",
+    "role": "superadmin",
+    "companyName": "Super Admin"
+  }
+]
