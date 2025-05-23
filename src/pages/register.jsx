@@ -31,6 +31,12 @@ const Register = () => {
   const handleRequestOtp = async () => {
     setError('');
     setMessage('');
+    // Check if passwords match before sending OTP
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match.');
+      setMessage('Passwords do not match.');
+      return;
+    }
     if (!formData.email) {
       setError('Email is required to send OTP.');
       return;
