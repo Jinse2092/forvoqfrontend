@@ -26,17 +26,13 @@ const ForgotPassword = () => {
     try {
       // Check if identifier exists before sending OTP
       let userExists = false;
+      const checkRes = await fetch('https://forwokbackend-1.onrender.com/api/users');
+      const users = await checkRes.json();
       if (identifier.includes('@')) {
-        const checkRes = await fetch('https://forwokbackend-1.onrender.com/api/users');
-        const users = await checkRes.json();
         userExists = users.some(u => u.email === identifier);
       } else if (/^\d{10,}$/.test(identifier)) {
-        const checkRes = await fetch('https://forwokbackend-1.onrender.com/api/users');
-        const users = await checkRes.json();
         userExists = users.some(u => u.phone === identifier);
       } else {
-        const checkRes = await fetch('https://forwokbackend-1.onrender.com/api/users');
-        const users = await checkRes.json();
         userExists = users.some(u => u.merchantId === identifier);
       }
       if (!userExists) {
