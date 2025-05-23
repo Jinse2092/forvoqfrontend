@@ -92,6 +92,21 @@ const PaymentsPanel = () => {
     XLSX.writeFile(workbook, `received_payments.xlsx`);
   };
 
+  // Helper to remove duplicate dispatch_fee rows by order id (from notes)
+  const filterDuplicateDispatchFees = (txns) => {
+    const seenOrderIds = new Set();
+    return txns.filter(txn => {
+      if (txn.type !== 'dispatch_fee') return true;
+      // Extract order id from notes (e.g., 'Packing & Dispatch fee for order ord-1748019804350')
+      const match = txn.notes && txn.notes.match(/order (\w+-\d+)/);
+      const orderId = match ? match[1] : null;
+      if (!orderId) return true;
+      if (seenOrderIds.has(orderId)) return false;
+      seenOrderIds.add(orderId);
+      return true;
+    });
+  };
+
   return (
     <div className="p-2 sm:p-6 space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-start gap-8 mb-4">

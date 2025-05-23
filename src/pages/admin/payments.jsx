@@ -300,8 +300,9 @@ const AdminPayments = () => {
       ) : (
         <div className="max-w-6xl mx-auto space-y-6">
           {Object.entries(paymentsByMerchant).map(([merchantId, txns]) => {
-            const totalAmount = calculateTotal(txns);
-            const settlementFees = calculateTotal(txns.filter(isSettlementFee));
+            const filteredTxns = filterDuplicateDispatchFees(txns);
+            const totalAmount = calculateTotal(filteredTxns);
+            const settlementFees = calculateTotal(filteredTxns.filter(isSettlementFee));
             return (
               <Card key={merchantId} className="shadow-lg bg-white dark:bg-gray-800 rounded-lg">
                 <CardHeader className="flex justify-between items-start">
@@ -310,15 +311,15 @@ const AdminPayments = () => {
                       <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{getMerchantName(merchantId)}</h2>
                       <p className="text-sm text-gray-500 dark:text-gray-400">{merchantId}</p>
                     </div>
-            {/* Calculate total payments excluding received payments */}
-            <p>Total Payments: ₹{calculateTotal(txns.filter(txn => txn.type !== 'received_payment')).toFixed(2)}</p>
-            <p className="font-medium">
-              Due Payments: ₹{(settlementFees - (receivedPaymentsByMerchant[merchantId]?.reduce((sum, rp) => sum + rp.amount, 0) || 0)).toFixed(2)}
-            </p>
+                {/* Calculate total payments excluding received payments */}
+                <p>Total Payments: ₹{calculateTotal(filteredTxns.filter(txn => txn.type !== 'received_payment')).toFixed(2)}</p>
+                <p className="font-medium">
+                  Due Payments: ₹{(settlementFees - (receivedPaymentsByMerchant[merchantId]?.reduce((sum, rp) => sum + rp.amount, 0) || 0)).toFixed(2)}
+                </p>
                   </div>
                   <div>
                     <button
-                      onClick={() => downloadExcel(merchantId, txns)}
+                      onClick={() => downloadExcel(merchantId, filteredTxns)}
                       className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
                     >
                       Download Excel
@@ -332,12 +333,12 @@ const AdminPayments = () => {
                         <TableHead>Date</TableHead>
                         <TableHead>Type</TableHead>
                         <TableHead className="text-right align-middle">Amount (₹)</TableHead>
-                    <TableHead className="text-right align-middle">Quantity</TableHead>
+                        <TableHead className="text-right align-middle">Quantity</TableHead>
                         <TableHead>Notes</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {txns.map(txn => {
+                      {filteredTxns.map(txn => {
                         const isDispatchFee = txn.type === 'dispatch_fee';
                         const quantity = isDispatchFee ? txn.quantity : '-';
                         const pricePerUnit = isDispatchFee && txn.quantity > 0 ? (txn.amount / txn.quantity).toFixed(2) : '-';
