@@ -24,16 +24,25 @@ const ForgotPassword = () => {
     setError('');
     setLoading(true);
     try {
-      // Check if email is already in use before sending OTP
+      // Check if identifier exists before sending OTP
+      let userExists = false;
       if (identifier.includes('@')) {
         const checkRes = await fetch('https://forwokbackend-1.onrender.com/api/users');
         const users = await checkRes.json();
-        if (users.some(u => u.email === identifier)) {
-          setError('This email is already registered. Please use a different email or login.');
-          setMessage('This email is already registered. Please use a different email or login.');
-          setLoading(false);
-          return;
-        }
+        userExists = users.some(u => u.email === identifier);
+      } else if (/^\d{10,}$/.test(identifier)) {
+        const checkRes = await fetch('https://forwokbackend-1.onrender.com/api/users');
+        const users = await checkRes.json();
+        userExists = users.some(u => u.phone === identifier);
+      } else {
+        const checkRes = await fetch('https://forwokbackend-1.onrender.com/api/users');
+        const users = await checkRes.json();
+        userExists = users.some(u => u.merchantId === identifier);
+      }
+      if (!userExists) {
+        setError('No account found with this identifier. Please check and try again.');
+        setLoading(false);
+        return;
       }
       const body = {};
       if (identifier.includes('@')) {
