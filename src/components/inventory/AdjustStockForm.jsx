@@ -22,12 +22,9 @@ const AdjustStockForm = ({ currentItem, closeModal, getProductName }) => {
     const quantityChange = parseInt(adjustData.quantity);
     if (isNaN(quantityChange)) return;
 
-    // For outbound, copy how inbound works but decrement
-    // (inbound adds, outbound subtracts)
-    let actualQuantityChange = quantityChange;
-    if (["damage", "loss", "sale", "outbound"].includes(adjustData.type)) {
-      actualQuantityChange = -Math.abs(quantityChange);
-    } else if (["purchase", "return", "correction", "found", "inbound"].includes(adjustData.type)) {
+    // Always decrement for outbound
+    let actualQuantityChange = -Math.abs(quantityChange);
+    if (["purchase", "return", "correction", "found", "inbound"].includes(adjustData.type)) {
       actualQuantityChange = Math.abs(quantityChange);
     }
 
