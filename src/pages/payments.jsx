@@ -4,6 +4,21 @@ import { Card, CardContent, CardHeader } from '../components/ui/card.jsx';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table.jsx';
 import * as XLSX from 'xlsx';
 
+// Helper to remove duplicate dispatch_fee rows by order id (from notes)
+const filterDuplicateDispatchFees = (txns) => {
+  const seenOrderIds = new Set();
+  return txns.filter(txn => {
+    if (txn.type !== 'dispatch_fee') return true;
+    // Extract order id from notes (e.g., 'Packing & Dispatch fee for order ord-1748019804350')
+    const match = txn.notes && txn.notes.match(/order (\w+-\d+)/);
+    const orderId = match ? match[1] : null;
+    if (!orderId) return true;
+    if (seenOrderIds.has(orderId)) return false;
+    seenOrderIds.add(orderId);
+    return true;
+  });
+};
+
 const PaymentsPanel = () => {
   const { transactions, users, currentUser } = useInventory();
   const [receivedPayments, setReceivedPayments] = useState([]);
@@ -90,21 +105,6 @@ const PaymentsPanel = () => {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Received Payments');
     XLSX.writeFile(workbook, `received_payments.xlsx`);
-  };
-
-  // Helper to remove duplicate dispatch_fee rows by order id (from notes)
-  const filterDuplicateDispatchFees = (txns) => {
-    const seenOrderIds = new Set();
-    return txns.filter(txn => {
-      if (txn.type !== 'dispatch_fee') return true;
-      // Extract order id from notes (e.g., 'Packing & Dispatch fee for order ord-1748019804350')
-      const match = txn.notes && txn.notes.match(/order (\w+-\d+)/);
-      const orderId = match ? match[1] : null;
-      if (!orderId) return true;
-      if (seenOrderIds.has(orderId)) return false;
-      seenOrderIds.add(orderId);
-      return true;
-    });
   };
 
   return (
