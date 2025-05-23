@@ -33,9 +33,9 @@ const AdjustStockForm = ({ currentItem, closeModal, getProductName }) => {
 
     // Update in backend (MongoDB)
     await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${currentItem.id}`, {
-      method: 'PATCH',
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ quantity: newQuantity }),
+      body: JSON.stringify({ ...currentItem, quantity: newQuantity, id: currentItem.id }),
     });
 
     // Optionally update local state/UI as well
