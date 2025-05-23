@@ -15,31 +15,37 @@ const AdjustStockForm = ({ currentItem, closeModal, getProductName }) => {
     setAdjustData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleAdjustSubmit = (e) => {
+  const handleAdjustSubmit = async (e) => {
     e.preventDefault();
     if (!currentItem) return;
 
     const quantityChange = parseInt(adjustData.quantity);
     if (isNaN(quantityChange)) return;
 
-    // Determine the actual change based on type if not 'adjustment'
     let actualQuantityChange = quantityChange;
-    if (['damage', 'loss', 'sale'].includes(adjustData.type)) {
-       actualQuantityChange = -Math.abs(quantityChange); // Ensure negative for deductions
-    } else if (['purchase', 'return', 'correction', 'found'].includes(adjustData.type)) {
-       actualQuantityChange = Math.abs(quantityChange); // Ensure positive for additions
+    if (["damage", "loss", "sale", "outbound"].includes(adjustData.type)) {
+      actualQuantityChange = -Math.abs(quantityChange);
+    } else if (["purchase", "return", "correction", "found", "inbound"].includes(adjustData.type)) {
+      actualQuantityChange = Math.abs(quantityChange);
     }
-    // For 'adjustment', use the entered value directly (+/-)
 
     const newQuantity = currentItem.quantity + actualQuantityChange;
 
+    // Update in backend (MongoDB)
+    await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${currentItem.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quantity: newQuantity }),
+    });
+
+    // Optionally update local state/UI as well
     updateInventoryItem(currentItem.id, { quantity: newQuantity });
     addTransaction({
       id: `txn-${Date.now()}`,
-      merchantId: currentItem.merchantId, // Include merchantId
+      merchantId: currentItem.merchantId,
       productId: currentItem.productId,
       type: adjustData.type,
-      quantity: actualQuantityChange, // Record the actual signed change
+      quantity: actualQuantityChange,
       date: new Date().toISOString().split('T')[0],
       notes: adjustData.notes || `${adjustData.type.charAt(0).toUpperCase() + adjustData.type.slice(1)}`,
     });
