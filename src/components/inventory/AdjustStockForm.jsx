@@ -35,21 +35,24 @@ const AdjustStockForm = ({ currentItem, closeModal, getProductName }) => {
     const newQuantity = currentItem.quantity + actualQuantityChange;
 
     // Update in backend (MongoDB)
-    await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${currentItem.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...currentItem,
-        quantity: newQuantity,
-        id: currentItem.id,
-        lastAdjustment: {
-          type: adjustData.type,
-          quantity: actualQuantityChange,
-          date: new Date().toISOString(),
-          notes: adjustData.notes || `${adjustData.type.charAt(0).toUpperCase() + adjustData.type.slice(1)}`
-        }
-      }),
-    });
+    // Use PATCH instead of PUT if backend does not allow PUT
+    await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${currentItem.id}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...currentItem,
+          quantity: newQuantity,
+          id: currentItem.id,
+          lastAdjustment: {
+            type: adjustData.type,
+            quantity: actualQuantityChange,
+            date: new Date().toISOString(),
+            notes: adjustData.notes || `${adjustData.type.charAt(0).toUpperCase() + adjustData.type.slice(1)}`
+          }
+        }),
+      }
+    );
 
     // Only update local state/UI, do not call addTransaction here if context already does it
     updateInventoryItem(currentItem.id, { quantity: newQuantity });
