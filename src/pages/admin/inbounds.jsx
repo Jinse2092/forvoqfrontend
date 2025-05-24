@@ -50,7 +50,7 @@ const TestAdminInbounds = () => {
         if (inventoryItem) {
           const newQuantity = inventoryItem.quantity - item.quantity;
           // PATCH request to update inventory in backend (was PUT)
-          await fetch(`/api/inventory/${inventoryItem.id}`, {
+          await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${inventoryItem.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ...inventoryItem, quantity: newQuantity, id: inventoryItem.id, lastAdjustment: {
