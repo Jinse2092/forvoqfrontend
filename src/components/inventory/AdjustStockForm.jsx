@@ -26,9 +26,10 @@ const AdjustStockForm = ({ currentItem, closeModal, getProductName }) => {
     // (inbound adds, outbound subtracts)
     let actualQuantityChange = quantityChange;
     if (["damage", "loss", "sale", "outbound"].includes(adjustData.type)) {
-      actualQuantityChange = -Math.abs(quantityChange);
+      // Use PATCH instead of PUT if backend does not allow PUT
+      actualQuantityChange = quantityChange < 0 ? quantityChange : -quantityChange;
     } else if (["purchase", "return", "correction", "found", "inbound"].includes(adjustData.type)) {
-      actualQuantityChange = Math.abs(quantityChange);
+      actualQuantityChange = quantityChange > 0 ? quantityChange : -quantityChange;
     }
 
     const newQuantity = currentItem.quantity + actualQuantityChange;
