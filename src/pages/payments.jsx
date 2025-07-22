@@ -4,6 +4,8 @@ import { Card, CardContent, CardHeader } from '../components/ui/card.jsx';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table.jsx';
 import * as XLSX from 'xlsx';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://https://forwokbackend-1.onrender.com';
+
 // Helper to remove duplicate dispatch_fee rows by order id (from notes)
 const filterDuplicateDispatchFees = (txns) => {
   const seenOrderIds = new Set();
@@ -25,11 +27,11 @@ const PaymentsPanel = () => {
 
   useEffect(() => {
     if (currentUser?.role === 'merchant' && currentUser?.id) {
-      fetch(`https://forwokbackend-1.onrender.com/api/received-payments?merchantId=${currentUser.id}`)
+      fetch(`${API_BASE_URL}/api/received-payments?merchantId=${currentUser.id}`)
         .then(res => res.json())
         .then(data => setReceivedPayments(data));
     } else if (currentUser?.role === 'admin') {
-      fetch('https://forwokbackend-1.onrender.com/api/received-payments')
+      fetch(`${API_BASE_URL}/api/received-payments`)
         .then(res => res.json())
         .then(data => setReceivedPayments(data.sort((a, b) => new Date(b.date) - new Date(a.date))));
     }

@@ -68,7 +68,7 @@ const Inbound = () => {
     });
   };
 
-  const handleAddInbound = () => {
+  const handleAddInbound = async () => {
     if (!currentUser) {
       toast({ title: 'Error', description: 'Please login to add inventory requests.', variant: 'destructive' });
       return;
@@ -92,6 +92,40 @@ const Inbound = () => {
         if (!inventoryItem || item.quantity > inventoryItem.quantity) {
           toast({ title: 'Inventory Error', description: `Cannot request more than available inventory for product.`, variant: 'destructive' });
           return;
+        }
+        // PATCH request to decrement inventory, with fallback
+        const newQuantity = inventoryItem.quantity - item.quantity;
+        let patchRes = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://https://forwokbackend-1.onrender.com'}/api/inventory/${inventoryItem.id}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...inventoryItem, quantity: newQuantity, id: inventoryItem.id, lastAdjustment: {
+              type: 'outbound',
+              quantity: -Math.abs(item.quantity),
+              date: new Date().toISOString(),
+              notes: 'Outbound inventory adjustment'
+            } })
+          });
+        if (patchRes.status === 404) {
+          // Item not found, create it then retry PATCH
+          await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://https://forwokbackend-1.onrender.com'}/api/inventory/${inventoryItem.id}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...inventoryItem, id: inventoryItem.id, quantity: newQuantity })
+            });
+          // Retry PATCH
+          patchRes = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://https://forwokbackend-1.onrender.com'}/api/inventory/${inventoryItem.id}`,
+            {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...inventoryItem, quantity: newQuantity, id: inventoryItem.id, lastAdjustment: {
+                type: 'outbound',
+                quantity: -Math.abs(item.quantity),
+                date: new Date().toISOString(),
+                notes: 'Outbound inventory adjustment'
+              } })
+            });
         }
       }
     }

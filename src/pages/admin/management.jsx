@@ -14,7 +14,7 @@ const AdminManagement = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ companyName: '', email: '', password: '' });
 
-  // Pin superadmin to top of the list
+  // Pin superadmin to top of the list.
   const admins = [
     ...users.filter(u => u.role === 'superadmin'),
     ...users.filter(u => u.role === 'admin')

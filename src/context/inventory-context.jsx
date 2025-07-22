@@ -11,6 +11,8 @@ import {
 
 // Removed import of useLocalStorage since it is no longer used
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://https://forwokbackend-1.onrender.com';
+
 const InventoryContext = createContext();
 
 // --- Provider Component ---
@@ -41,7 +43,7 @@ export const InventoryProvider = ({ children }) => {
   const fetchAllData = async () => {
     try {
       const endpoints = ['products', 'inventory', 'transactions', 'orders', 'inbounds', 'users', 'savedPickupLocations'];
-      const results = await Promise.all(endpoints.map(ep => fetch(`https://forwokbackend-1.onrender.com/api/${ep}`).then(res => {
+      const results = await Promise.all(endpoints.map(ep => fetch(`${API_BASE_URL}/api/${ep}`).then(res => {
         if (!res.ok) throw new Error(`Failed to fetch ${ep}`);
         return res.json();
       })));
@@ -132,13 +134,17 @@ export const InventoryProvider = ({ children }) => {
 
   useEffect(() => {
     fetchAllData();
+    const interval = setInterval(() => {
+      fetchAllData();
+    }, 20000); // 20 seconds
+    return () => clearInterval(interval);
   }, []);
 
   // Helper to add data item to backend and update state
   const addDataToBackend = async (type, item, setState) => {
     try {
       console.log(`Sending POST request to backend for type: ${type}`, item);
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/${type}`, {
+      const response = await fetch(`${API_BASE_URL}/api/${type}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(item),
@@ -162,7 +168,7 @@ export const InventoryProvider = ({ children }) => {
   // --- Authentication Simulation ---
   const login = async (email, password) => {
     try {
-      const response = await fetch('https://forwokbackend-1.onrender.com/login', {
+      const response = await fetch(`${API_BASE_URL}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -197,7 +203,7 @@ export const InventoryProvider = ({ children }) => {
       ...companyDetails
     };
     try {
-      const response = await fetch('https://forwokbackend-1.onrender.com/api/users', {
+      const response = await fetch(`${API_BASE_URL}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newUser),
@@ -222,8 +228,18 @@ export const InventoryProvider = ({ children }) => {
     toast({ title: "Logged Out" });
   };
 
+  // --- Helper: Verify user is authenticated ---
+  const verifyUser = () => {
+    if (!currentUser) {
+      toast({ title: "Not Authenticated", description: "Please log in to perform this action.", variant: "destructive" });
+      return false;
+    }
+    return true;
+  };
+
   // --- Product CRUD ---
   const addProduct = async (product) => {
+    if (!verifyUser()) return;
     // Ensure merchantId is preserved when adding product
     const newProduct = { ...product, merchantId: currentUser?.id };
     const savedProduct = await addDataToBackend('products', newProduct, setProducts);
@@ -234,8 +250,9 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const updateProduct = async (id, updatedProduct) => {
+    if (!verifyUser()) return;
     try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/products/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...updatedProduct, id }),
@@ -251,6 +268,7 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const deleteProduct = async (id) => {
+    if (!verifyUser()) return;
     const product = products.find(p => p.id === id);
     if (!product) return;
     if (currentUser?.role === 'merchant' && product.merchantId !== currentUser.id) {
@@ -258,7 +276,7 @@ export const InventoryProvider = ({ children }) => {
        return;
     }
     try {
-    const response = await fetch(`https://forwokbackend-1.onrender.com/api/products/${id}`, { method: 'DELETE' });
+    const response = await fetch(`${API_BASE_URL}/api/products/${id}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('Failed to delete product');
       setProducts(prev => prev.filter(p => p.id !== id));
       setInventory(prev => prev.filter(i => i.productId !== id));
@@ -274,6 +292,7 @@ export const InventoryProvider = ({ children }) => {
 
   // --- Inventory CRUD ---
    const addInventoryItem = async (item) => {
+     if (!verifyUser()) return;
      const existingItem = inventory.find(i => i.productId === item.productId && i.merchantId === item.merchantId);
      if (existingItem) {
        await updateInventoryItem(existingItem.id, { quantity: existingItem.quantity + item.quantity });
@@ -289,6 +308,7 @@ export const InventoryProvider = ({ children }) => {
    };
 
    const removeInventoryItemQuantity = async (item) => {
+     if (!verifyUser()) return false;
      const existingItem = inventory.find(i => i.productId === item.productId && i.merchantId === item.merchantId);
      if (existingItem) {
        const newQuantity = existingItem.quantity - item.quantity;
@@ -305,22 +325,44 @@ export const InventoryProvider = ({ children }) => {
    };
 
    const updateInventoryItem = async (id, updatedItem) => {
+     if (!verifyUser()) return;
      try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/inventory/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...updatedItem, id }),
       });
-       if (!response.ok) throw new Error('Failed to update inventory item');
-       const savedItem = await response.json();
-       setInventory(prev => prev.map(i => i.id === id ? savedItem : i));
-       await fetchAllData();
-     } catch (error) {
-       toast({ title: "Error", description: "Failed to update inventory item.", variant: "destructive" });
-     }
+      if (response.status === 404) {
+        // Item not found, try to create it
+        const createRes = await fetch(`${API_BASE_URL}/api/inventory/${id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...updatedItem, id }),
+        });
+        if (!createRes.ok) throw new Error('Failed to create inventory item after 404');
+        // Try update again (in case more fields need to be set)
+        const retryRes = await fetch(`${API_BASE_URL}/api/inventory/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...updatedItem, id }),
+        });
+        if (!retryRes.ok) throw new Error('Failed to update inventory item after creation');
+        const savedItem = await retryRes.json();
+        setInventory(prev => prev.map(i => i.id === id ? savedItem : i));
+        await fetchAllData();
+        return;
+      }
+      if (!response.ok) throw new Error('Failed to update inventory item');
+      const savedItem = await response.json();
+      setInventory(prev => prev.map(i => i.id === id ? savedItem : i));
+      await fetchAllData();
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to update inventory item.", variant: "destructive" });
+    }
    };
 
    const deleteInventoryItem = async (id) => {
+     if (!verifyUser()) return;
      const item = inventory.find(i => i.id === id);
      if (!item) return;
      if (currentUser?.role === 'merchant' && item.merchantId !== currentUser.id) {
@@ -328,7 +370,7 @@ export const InventoryProvider = ({ children }) => {
         return;
      }
      try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${id}`, { method: 'DELETE' });
+      const response = await fetch(`${API_BASE_URL}/api/inventory/${id}`, { method: 'DELETE' });
        if (!response.ok) throw new Error('Failed to delete inventory item');
        setInventory(prev => prev.filter(i => i.id !== id));
        toast({ title: "Inventory Item Deleted", description: `${products.find(p => p.id === item.productId)?.name || 'Item'} inventory record removed.`, variant: "destructive" });
@@ -340,6 +382,7 @@ export const InventoryProvider = ({ children }) => {
 
   // --- Transaction Handling ---
   const addTransaction = async (transaction) => {
+    if (!verifyUser()) return;
     const fullTransaction = { ...transaction, id: `txn-${Date.now()}`, date: new Date().toISOString().split('T')[0] };
     const savedTransaction = await addDataToBackend('transactions', fullTransaction, setTransactions);
     if (!savedTransaction) return;
@@ -359,6 +402,7 @@ export const InventoryProvider = ({ children }) => {
 
   // Add received payment with monthly terms (admin only)
   const addReceivedPayment = async ({ merchantId, amount, notes, monthlyTerms }) => {
+    if (!verifyUser()) return;
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'superadmin') {
       toast({ title: "Permission Denied", description: "Only admins can add received payments.", variant: "destructive" });
       return;
@@ -389,6 +433,7 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const addOrder = async (order) => {
+    if (!verifyUser()) return;
     const price = calculateOrderPrice(order.items || []);
     const newOrder = { ...order, id: `ord-${Date.now()}`, merchantId: order.merchantId || currentUser?.id, status: 'pending', date: new Date().toISOString().split('T')[0], price };
     const savedOrder = await addDataToBackend('orders', newOrder, setOrders);
@@ -400,6 +445,7 @@ export const InventoryProvider = ({ children }) => {
 
   // Add return order with RTO or Damaged option
   const addReturnOrder = async (returnOrder, returnType) => {
+    if (!verifyUser()) return;
     const price = calculateOrderPrice(returnOrder.items || []);
     const newOrder = { ...returnOrder, id: `ret-${Date.now()}`, merchantId: returnOrder.merchantId, status: 'return', date: new Date().toISOString().split('T')[0], price, returnType };
     const savedReturnOrder = await addDataToBackend('orders', newOrder, setOrders);
@@ -434,8 +480,9 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const updateOrder = async (orderId, updatedFields) => {
+    if (!verifyUser()) return;
     try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/orders/${orderId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/orders/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...updatedFields, id: orderId }),
@@ -451,8 +498,9 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const removeOrder = async (orderId) => {
+    if (!verifyUser()) return;
     try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/orders/${orderId}`, { method: 'DELETE' });
+      const response = await fetch(`${API_BASE_URL}/api/orders/${orderId}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('Failed to delete order');
       setOrders(prev => prev.filter(o => o.id !== orderId));
       toast({ title: "Order Removed", description: `Order ${orderId} has been removed.` });
@@ -463,6 +511,7 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const dispatchOrder = async (orderId) => {
+    if (!verifyUser()) return;
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'superadmin') {
        toast({ title: "Permission Denied", description: "Only admins can dispatch orders.", variant: "destructive" });
        return;
@@ -549,6 +598,7 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const markOrderPacked = async (orderId) => {
+    if (!verifyUser()) return;
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'superadmin') {
        toast({ title: "Permission Denied", description: "Only admins can mark orders as packed.", variant: "destructive" });
        return;
@@ -558,7 +608,11 @@ export const InventoryProvider = ({ children }) => {
   };
 
   // --- Inbound Management ---
+   let isSubmittingInbound = false; // Prevent double submissions
    const addInboundRequest = async (inboundData) => {
+     if (!verifyUser()) return;
+     if (isSubmittingInbound) return; // Guard against double submit
+     isSubmittingInbound = true;
      // Calculate total weight using max of actual and volumetric weight per item
      const totalWeightKg = inboundData.items.reduce((sum, item) => {
        const product = products.find(p => p.id === item.productId);
@@ -575,6 +629,12 @@ export const InventoryProvider = ({ children }) => {
      // Calculate fee: ₹5 per 500g (0.5kg), round up
      const fee = Math.ceil(totalWeightKg / 0.5) * 5;
 
+     // --- Ensure pickupLocation is set for both inbound and outbound ---
+     let pickupLocation = inboundData.pickupLocation;
+     if (inboundData.type === 'outbound' && inboundData.deliveryLocation) {
+       pickupLocation = inboundData.deliveryLocation;
+     }
+
      const newInbound = {
        ...inboundData,
        id: `inb-${Date.now()}`,
@@ -582,16 +642,18 @@ export const InventoryProvider = ({ children }) => {
        status: 'pending',
        date: new Date().toISOString().split('T')[0],
        totalWeightKg: totalWeightKg,
-       fee: fee
+       fee: fee,
+       pickupLocation // always set for both types
      };
      try {
-       const response = await fetch('https://forwokbackend-1.onrender.com/api/inbounds', {
+       const response = await fetch(`${API_BASE_URL}/api/inbounds`, {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify(newInbound),
        });
        if (!response.ok) {
          toast({ title: "Error", description: "Failed to save inbound request to server.", variant: "destructive" });
+         isSubmittingInbound = false;
          return;
        }
        const savedInbound = await response.json();
@@ -599,10 +661,13 @@ export const InventoryProvider = ({ children }) => {
        toast({ title: "Inbound Request Added", description: `Pickup scheduled for ${savedInbound.pickupDate}. Estimated fee: ₹${fee.toFixed(2)}` });
      } catch (error) {
        toast({ title: "Error", description: "Error saving inbound request to server.", variant: "destructive" });
+     } finally {
+       isSubmittingInbound = false;
      }
   };
 
    const receiveInbound = async (inboundId) => {
+     if (!verifyUser()) return;
      if (currentUser?.role !== 'admin' && currentUser?.role !== 'superadmin') {
         toast({ title: "Permission Denied", description: "Only admins can receive inbounds.", variant: "destructive" });
         return;
@@ -613,7 +678,7 @@ export const InventoryProvider = ({ children }) => {
      const updatedInbound = { ...inbound, status: 'completed', receivedDate: new Date().toISOString().split('T')[0] };
 
      try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/inbounds/${inboundId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/inbounds/${inboundId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedInbound),
@@ -693,6 +758,7 @@ export const InventoryProvider = ({ children }) => {
 
    // --- Admin User Management ---
    const addAdmin = async (adminDetails) => {
+      if (!verifyUser()) return false;
       if (currentUser?.role !== 'superadmin') {
          toast({ title: "Permission Denied", description: "Only Super Admins can add admins.", variant: "destructive" });
          return false;
@@ -711,7 +777,7 @@ export const InventoryProvider = ({ children }) => {
         ...adminDetails
       };
       try {
-      const response = await fetch('https://forwokbackend-1.onrender.com/api/users', {
+      const response = await fetch(`${API_BASE_URL}/api/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newAdmin),
@@ -731,6 +797,7 @@ export const InventoryProvider = ({ children }) => {
    };
 
    const removeUser = async (userId) => {
+    if (!verifyUser()) return;
       const userToRemove = users.find(u => u.id === userId);
       if (!userToRemove) return;
 
@@ -744,7 +811,7 @@ export const InventoryProvider = ({ children }) => {
       }
 
       try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/users/${userId}`, { method: 'DELETE' });
+      const response = await fetch(`${API_BASE_URL}/api/users/${userId}`, { method: 'DELETE' });
         if (!response.ok) {
           toast({ title: "User Removal Failed", description: "Failed to remove user from server.", variant: "destructive" });
           return;
@@ -768,9 +835,10 @@ export const InventoryProvider = ({ children }) => {
   const [savedPickupLocations, setSavedPickupLocations] = useState([]);
 
   const addPickupLocation = async (location) => {
+    if (!verifyUser()) return;
     const newLocation = { id: `loc-${Date.now()}`, ...location };
     try {
-      const response = await fetch('https://forwokbackend-1.onrender.com/api/savedPickupLocations', {
+      const response = await fetch(`${API_BASE_URL}/api/savedPickupLocations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newLocation),
@@ -784,8 +852,9 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const updatePickupLocation = async (id, updatedLocation) => {
+    if (!verifyUser()) return;
     try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/savedPickupLocations/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/savedPickupLocations/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedLocation),
@@ -799,8 +868,9 @@ export const InventoryProvider = ({ children }) => {
   };
 
   const deletePickupLocation = async (id) => {
+    if (!verifyUser()) return;
     try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/savedPickupLocations/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/savedPickupLocations/${id}`, {
         method: 'DELETE',
       });
       if (!response.ok) throw new Error('Failed to delete pickup location');
