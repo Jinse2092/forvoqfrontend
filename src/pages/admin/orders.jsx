@@ -482,86 +482,94 @@ const openMarkItemsDialog = (order) => {
             </div>
                   {addOrderTab === 'manual' && (
                     <div className="space-y-4 mt-4">
-                      <div>
-                        <Label htmlFor="merchant">Select Merchant</Label>
-                        <Select value={selectedMerchantId} onValueChange={setSelectedMerchantId}>
-                          <SelectTrigger className="w-full">
-                            <SelectValue>
-                              {selectedMerchantId
-                                ? (users.find(user => user.id === selectedMerchantId)?.companyName || users.find(user => user.id === selectedMerchantId)?.name || selectedMerchantId)
-                                : "Select merchant"}
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {users
-                              .filter(user => user.role === 'merchant')
-                              .map(user => (
-                                <SelectItem key={user.id} value={user.id}>
-                                  {user.companyName || user.name || user.id}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
+                      <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-4 sm:space-y-0">
+                        <div className="flex-1">
+                          <Label htmlFor="merchant">Select Merchant</Label>
+                          <Select value={selectedMerchantId} onValueChange={setSelectedMerchantId}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue>
+                                {selectedMerchantId
+                                  ? (users.find(user => user.id === selectedMerchantId)?.companyName || users.find(user => user.id === selectedMerchantId)?.name || selectedMerchantId)
+                                  : "Select merchant"}
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {users
+                                .filter(user => user.role === 'merchant')
+                                .map(user => (
+                                  <SelectItem key={user.id} value={user.id}>
+                                    {user.companyName || user.name || user.id}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex-1">
+                          <Label htmlFor="customerName">Customer Name</Label>
+                          <Input
+                            id="customerName"
+                            value={newCustomerName}
+                            onChange={(e) => setNewCustomerName(e.target.value)}
+                            placeholder="Customer Name"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <Label htmlFor="customerName">Customer Name</Label>
-                        <Input
-                          id="customerName"
-                          value={newCustomerName}
-                          onChange={(e) => setNewCustomerName(e.target.value)}
-                          placeholder="Customer Name"
-                        />
+                      <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-4 sm:space-y-0">
+                        <div className="flex-1">
+                          <Label htmlFor="address">Address</Label>
+                          <Input
+                            id="address"
+                            value={newAddress}
+                            onChange={(e) => setNewAddress(e.target.value)}
+                            placeholder="Full Address"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <Label htmlFor="city">City</Label>
+                          <Input
+                            id="city"
+                            value={newCity}
+                            onChange={(e) => setNewCity(e.target.value)}
+                            placeholder="City"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <Label htmlFor="address">Address</Label>
-                        <Input
-                          id="address"
-                          value={newAddress}
-                          onChange={(e) => setNewAddress(e.target.value)}
-                          placeholder="Full Address"
-                        />
+                      <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-4 sm:space-y-0">
+                        <div className="flex-1">
+                          <Label htmlFor="state">State</Label>
+                          <Input
+                            id="state"
+                            value={newState}
+                            onChange={(e) => setNewState(e.target.value)}
+                            placeholder="State"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <Label htmlFor="pincode">Pincode</Label>
+                          <Input
+                            id="pincode"
+                            value={newPincode}
+                            onChange={(e) => setNewPincode(e.target.value)}
+                            placeholder="Pincode"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <Label htmlFor="city">City</Label>
-                        <Input
-                          id="city"
-                          value={newCity}
-                          onChange={(e) => setNewCity(e.target.value)}
-                          placeholder="City"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="state">State</Label>
-                        <Input
-                          id="state"
-                          value={newState}
-                          onChange={(e) => setNewState(e.target.value)}
-                          placeholder="State"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="pincode">Pincode</Label>
-                        <Input
-                          id="pincode"
-                          value={newPincode}
-                          onChange={(e) => setNewPincode(e.target.value)}
-                          placeholder="Pincode"
-                        />
-                      </div>
-                      <div className="mt-4 block">
-                        <Label htmlFor="phone" className="block mb-1 font-medium text-gray-700">Phone Number</Label>
-                        <Input
-                          id="phone"
-                          value={newPhone}
-                          onChange={(e) => setNewPhone(e.target.value)}
-                          placeholder="Phone Number"
-                          className="block w-full"
-                        />
+                      <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-4 sm:space-y-0">
+                        <div className="flex-1">
+                          <Label htmlFor="phone" className="block mb-1 font-medium text-gray-700">Phone Number</Label>
+                          <Input
+                            id="phone"
+                            value={newPhone}
+                            onChange={(e) => setNewPhone(e.target.value)}
+                            placeholder="Phone Number"
+                            className="block w-full"
+                          />
+                        </div>
                       </div>
                       <div>
                         <Label>Items</Label>
                         {newItems.slice(0, newItemCount).map((item, index) => (
-                          <div key={index} className="flex items-center space-x-2 mb-2">
+                          <div key={index} className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 mb-2 space-y-2 sm:space-y-0">
                             <Select
                               value={item.productId}
                               onValueChange={(value) => handleNewItemChange(index, 'productId', value)}
@@ -593,8 +601,8 @@ const openMarkItemsDialog = (order) => {
                         ))}
                         <Button variant="outline" onClick={handleAddNewItem}>Add Item</Button>
                       </div>
-                      <div className="mt-4 p-2 border rounded bg-gray-50">
-                        <p>
+                      <div className="mt-4 p-2 border rounded bg-gray-50 dark:bg-gray-800">
+                        <p className="text-gray-900 dark:text-gray-100">
                           <strong>Address Summary:</strong> {newAddress}, {newCity}, {newState}, PIN: {newPincode}, Phone: {newPhone}
                         </p>
                       </div>
