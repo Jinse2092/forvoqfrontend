@@ -18,33 +18,54 @@ const Products = () => {
   
   const [formData, setFormData] = useState({
     name: '',
-    sku: '',
+    skus: [''],
     category: '',
     price: '',
     cost: '',
     description: '',
     imageUrl: '',
-    weightKg: '', // Ensure this is always a string
+    weightKg: '',
     packingType: 'normal packing',
     lengthCm: '',
     breadthCm: '',
     heightCm: '',
     inboundPrice: '',
     outboundPrice: '',
-    packingPrice: '' // Ensure packingPrice is always present
+    packingPrice: ''
   });
   const [searchTerm, setSearchTerm] = useState('');
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value === undefined || value === null ? '' : value })); // Always fallback to empty string
+    if (name.startsWith('sku-')) {
+      // Handle SKU array
+      const idx = parseInt(name.split('-')[1], 10);
+      setFormData(prev => {
+        const skus = [...prev.skus];
+        skus[idx] = value;
+        return { ...prev, skus };
+      });
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value === undefined || value === null ? '' : value }));
+    }
+  };
+
+  const handleAddSku = () => {
+    setFormData(prev => ({ ...prev, skus: [...prev.skus, ''] }));
+  };
+
+  const handleRemoveSku = (idx) => {
+    setFormData(prev => {
+      const skus = prev.skus.filter((_, i) => i !== idx);
+      return { ...prev, skus: skus.length ? skus : [''] };
+    });
   };
 
   const handleFormSubmit = (e) => {
     e.preventDefault();
     const productData = {
       ...formData,
-      sku: formData.sku || '',
+      skus: formData.skus.map(s => s.trim()).filter(Boolean),
       category: formData.category || '',
       price: formData.price === '' ? 0 : parseFloat(formData.price),
       cost: formData.cost === '' ? 0 : parseFloat(formData.cost),
@@ -67,7 +88,7 @@ const Products = () => {
     if (product) {
       setFormData({
         name: product.name ?? '',
-        sku: product.sku ?? '',
+        skus: Array.isArray(product.skus) ? product.skus : [product.sku ?? ''],
         category: product.category ?? '',
         price: product.price !== undefined && product.price !== null ? product.price.toString() : '',
         cost: product.cost !== undefined && product.cost !== null ? product.cost.toString() : '',
@@ -83,7 +104,7 @@ const Products = () => {
         packingPrice: product.packingPrice !== undefined && product.packingPrice !== null ? product.packingPrice.toString() : ''
       });
     } else {
-      setFormData({ name: '', sku: '', category: '', price: '', cost: '', description: '', imageUrl: '', packingType: 'normal packing', weightKg: '', lengthCm: '', breadthCm: '', heightCm: '', inboundPrice: '', outboundPrice: '', packingPrice: '' });
+      setFormData({ name: '', skus: [''], category: '', price: '', cost: '', description: '', imageUrl: '', packingType: 'normal packing', weightKg: '', lengthCm: '', breadthCm: '', heightCm: '', inboundPrice: '', outboundPrice: '', packingPrice: '' });
     }
     setIsModalOpen(true);
   };
@@ -129,8 +150,27 @@ const Products = () => {
                     <Input id="name" name="name" value={formData.name} onChange={handleInputChange} className="col-span-3 sm:col-span-1 w-full" required />
                   </div>
                   <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4 w-full">
-                    <Label htmlFor="sku" className="text-right sm:text-left">SKU</Label>
-                    <Input id="sku" name="sku" value={formData.sku} onChange={handleInputChange} className="col-span-3 sm:col-span-1 w-full" required />
+                    <Label className="text-right sm:text-left">SKUs</Label>
+                    <div className="col-span-3 sm:col-span-1 w-full flex flex-col gap-2">
+                      {formData.skus.map((sku, idx) => (
+                        <div key={idx} className="flex gap-2 items-center">
+                          <Input
+                            name={`sku-${idx}`}
+                            value={sku}
+                            onChange={handleInputChange}
+                            placeholder={`SKU #${idx + 1}`}
+                            required={idx === 0}
+                            className="flex-1"
+                          />
+                          {formData.skus.length > 1 && (
+                            <Button type="button" variant="outline" onClick={() => handleRemoveSku(idx)}>-</Button>
+                          )}
+                          {idx === formData.skus.length - 1 && (
+                            <Button type="button" variant="outline" onClick={handleAddSku}>+</Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4 w-full">
                     <Label htmlFor="category" className="text-right sm:text-left">Category</Label>
