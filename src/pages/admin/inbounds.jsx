@@ -22,7 +22,6 @@ const TestAdminInbounds = () => {
   const { inbounds, setInbounds, receiveInbound, products, users, savedPickupLocations, inventory } = useInventory();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
-
   useEffect(() => {
     console.log('inbounds state changed:', inbounds);
   }, [inbounds]);
@@ -147,8 +146,16 @@ const TestAdminInbounds = () => {
                       <TableCell>{getProductDetails(inb.items)}</TableCell>
                       <TableCell>{inb.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
                       <TableCell>{inb.totalWeightKg !== undefined && inb.totalWeightKg !== null ? inb.totalWeightKg.toFixed(2) : ''}</TableCell>
-                      <TableCell>{formatLocation(inb.pickupLocation)}</TableCell>
-                      <TableCell>{inb.pickupLocation && inb.pickupLocation.phone ? inb.pickupLocation.phone : 'N/A'}</TableCell>
+                      <TableCell>
+                        {inb.type === 'outbound'
+                          ? formatLocation(inb.deliveryLocation)
+                          : formatLocation(inb.pickupLocation)}
+                      </TableCell>
+                      <TableCell>
+                        {inb.type === 'outbound'
+                          ? (inb.deliveryLocation && inb.deliveryLocation.phone ? inb.deliveryLocation.phone : 'N/A')
+                          : (inb.pickupLocation && inb.pickupLocation.phone ? inb.pickupLocation.phone : 'N/A')}
+                      </TableCell>
                       <TableCell>{inb.status}</TableCell>
                       <TableCell>{inb.fee}</TableCell>
                       <TableCell className="space-x-2">
