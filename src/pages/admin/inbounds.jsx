@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader } from '../../components/ui/card.jsx';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table.jsx';
 import { AnimatePresence, motion } from 'framer-motion';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://https://forwokbackend-1.onrender.com';
+
 const formatLocation = (location) => {
   if (!location) return '';
   if (typeof location === 'string') {
@@ -50,7 +52,7 @@ const TestAdminInbounds = () => {
         if (inventoryItem) {
           const newQuantity = inventoryItem.quantity - item.quantity;
           // PATCH request to update inventory in backend (was PUT)
-          await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${inventoryItem.id}`, {
+          let patchRes = await fetch(`${API_BASE_URL}/api/inventory/${inventoryItem.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ...inventoryItem, quantity: newQuantity, id: inventoryItem.id, lastAdjustment: {
@@ -60,6 +62,25 @@ const TestAdminInbounds = () => {
               notes: 'Outbound inventory adjustment'
             } })
           });
+          if (patchRes.status === 404) {
+            // Item not found, create it then retry PATCH
+            await fetch(`${API_BASE_URL}/api/inventory/${inventoryItem.id}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...inventoryItem, id: inventoryItem.id, quantity: newQuantity })
+            });
+            // Retry PATCH
+            patchRes = await fetch(`${API_BASE_URL}/api/inventory/${inventoryItem.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...inventoryItem, quantity: newQuantity, id: inventoryItem.id, lastAdjustment: {
+                type: 'outbound',
+                quantity: -Math.abs(item.quantity),
+                date: new Date().toISOString(),
+                notes: 'Outbound inventory adjustment'
+              } })
+            });
+          }
         }
       }
     }

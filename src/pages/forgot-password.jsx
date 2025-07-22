@@ -6,6 +6,8 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://https://forwokbackend-1.onrender.com';
+
 const ForgotPassword = () => {
   const [step, setStep] = useState(1);
   const [identifier, setIdentifier] = useState(''); // email, merchantId or phone
@@ -26,7 +28,7 @@ const ForgotPassword = () => {
     try {
       // Check if identifier exists before sending OTP
       let userExists = false;
-      const checkRes = await fetch('https://forwokbackend-1.onrender.com/api/users');
+      const checkRes = await fetch(`${API_BASE_URL}/api/users`);
       const users = await checkRes.json();
       if (identifier.includes('@')) {
         userExists = users.some(u => u.email === identifier);
@@ -48,7 +50,7 @@ const ForgotPassword = () => {
       } else {
         body.merchantId = identifier;
       }
-      const response = await fetch('https://forwokbackend-1.onrender.com/api/forgot-password/request-otp', {
+      const response = await fetch(`${API_BASE_URL}/api/forgot-password/request-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -74,7 +76,7 @@ const ForgotPassword = () => {
     setError('');
     setLoading(true);
     try {
-      const response = await fetch('https://forwokbackend-1.onrender.com/api/forgot-password/verify-otp', {
+      const response = await fetch(`${API_BASE_URL}/api/forgot-password/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, otp }),
@@ -102,7 +104,7 @@ const ForgotPassword = () => {
     }
     setLoading(true);
     try {
-      const response = await fetch('https://forwokbackend-1.onrender.com/api/forgot-password/reset-password', {
+      const response = await fetch(`${API_BASE_URL}/api/forgot-password/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, newPassword }),
