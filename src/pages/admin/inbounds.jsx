@@ -19,7 +19,7 @@ const formatLocation = (location) => {
 };
 
 const TestAdminInbounds = () => {
-  const { inbounds, setInbounds, receiveInbound, products, users, savedPickupLocations } = useInventory();
+  const { inbounds, setInbounds, receiveInbound, products, users, savedPickupLocations, inventory } = useInventory();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -46,20 +46,29 @@ const TestAdminInbounds = () => {
     if (inbound && inbound.type === 'outbound') {
       for (const item of inbound.items) {
         // Find inventory item for this product and merchant
-        const inventoryItem = products.find(p => p.id === item.productId && p.merchantId === inbound.merchantId);
+        const inventoryItem = inventory.find(inv => inv.productId === item.productId && inv.merchantId === inbound.merchantId);
         if (inventoryItem) {
           const newQuantity = inventoryItem.quantity - item.quantity;
-          // PATCH request to update inventory in backend (was PUT)
-          await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${inventoryItem.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...inventoryItem, quantity: newQuantity, id: inventoryItem.id, lastAdjustment: {
-              type: 'outbound',
-              quantity: -Math.abs(item.quantity),
-              date: new Date().toISOString(),
-              notes: 'Outbound inventory adjustment'
-            } })
-          });
+          try {
+            const response = await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${inventoryItem.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...inventoryItem, quantity: newQuantity, id: inventoryItem.id, lastAdjustment: {
+                type: 'outbound',
+                quantity: -Math.abs(item.quantity),
+                date: new Date().toISOString(),
+                notes: 'Outbound inventory adjustment'
+              } })
+            });
+            if (!response.ok) {
+              const errorData = await response.json();
+              toast({ title: 'Error updating inventory', description: errorData.error || 'Unknown error', variant: 'destructive' });
+            }
+          } catch (err) {
+            toast({ title: 'Network error', description: err.message, variant: 'destructive' });
+          }
+        } else {
+          toast({ title: 'Inventory item not found', description: `No inventory for product ${item.productId} and merchant ${inbound.merchantId}`, variant: 'destructive' });
         }
       }
     }
