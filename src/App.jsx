@@ -16,6 +16,7 @@ import Register from './pages/register.jsx';
 import ForgotPassword from './pages/forgot-password.jsx';
 import AdminMerchants from './pages/admin/merchants.jsx';
 import AdminOrders from './pages/admin/orders.jsx';
+import AdminMerchantManagement from './pages/admin/merchant-management.jsx';
 import AdminInbounds from './pages/admin/inbounds.jsx';
 import AdminManagement from './pages/admin/management.jsx';
 import AdminPayments from './pages/admin/payments.jsx';
@@ -64,6 +65,7 @@ function App() {
 
                       {/* Admin Routes */}
                       <Route path="/admin/merchants" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminMerchants /></ProtectedRoute>} />
+                      <Route path="/admin/merchant/:id" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminMerchantManagement /></ProtectedRoute>} />
                       <Route path="/admin/orders" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminOrders /></ProtectedRoute>} />
                       <Route path="/admin/inbounds" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminInbounds /></ProtectedRoute>} />
                       <Route path="/admin/payments" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminPayments /></ProtectedRoute>} />

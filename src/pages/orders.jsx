@@ -2,19 +2,187 @@ import React, { useState } from 'react';
 import { useInventory } from '../context/inventory-context.jsx';
 import { Button } from '../components/ui/button.jsx';
 import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription } from '../components/ui/dialog.jsx';
+import { useToast } from '../components/ui/use-toast';
 import { Input } from '../components/ui/input.jsx';
 import { Label } from '../components/ui/label.jsx';
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '../components/ui/select.jsx';
 import { Card, CardContent, CardHeader } from '../components/ui/card.jsx';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs.jsx';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table.jsx';
+import { calculateVolumetricWeight, calculateDispatchFee } from '../lib/utils.js';
+import { jsPDF } from 'jspdf'; // using jsPDF to generate merged N-up labels
+import html2canvas from 'html2canvas';
+import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx';
+  // Template rendering function with basic Liquid-like support
+  const renderTemplate = (tpl, initialData = {}) => {
+    const src = String(tpl || '');
+    const ctx = { ...initialData };
 
-const MerchantOrders = () => {
-  const { orders, addOrder, removeOrder, products, currentUser, inventory, addReturnOrder } = useInventory();
+    const resolvePath = (path, localCtx = ctx) => {
+      if (!path) return undefined;
+      const parts = path.trim().split('.');
+      let cur = localCtx;
+      for (const p of parts) {
+        if (cur == null) return undefined;
+        cur = cur[p];
+      }
+      return cur;
+    };
 
-  const [activeTab, setActiveTab] = useState('all');
+    const applyFilters = (value, filters = []) => {
+      return filters.reduce((val, f) => {
+        const [name, arg] = f.split(':').map(s => s.trim());
+        if (name === 'default') {
+          const def = (arg || '').replace(/^['"]|['"]$/g, '');
+          return (val === undefined || val === null || val === '') ? (resolvePath(def) ?? def) : val;
+        }
+        if (name === 'date') {
+          try { return val ? new Date(val).toLocaleDateString() : val; } catch { return val; }
+        }
+        if (name === 'plus') {
+          return (Number(val) || 0) + (Number(arg) || 0);
+        }
+        if (name === 'size') {
+          return Array.isArray(val) ? val.length : (typeof val === 'string' ? val.length : 0);
+        }
+        return val;
+      }, value);
+    };
+
+    // Process assign tags
+    const processAssign = (t) => t.replace(/{%\s*assign\s+(\w+)\s*=\s*([^%]+?)\s*%}/g, (_, name, expr) => {
+      const parts = expr.split('|').map(s => s.trim());
+      const path = parts[0];
+      const filters = parts.slice(1);
+      const raw = resolvePath(path);
+      const val = raw === undefined ? path.replace(/^['"]|['"]$/g, '') : raw;
+      ctx[name] = applyFilters(val, filters);
+      return '';
+    });
+
+    const processIfUnless = (t) => {
+      // if/else/endif
+      t = t.replace(/{%\s*if\s+([^%]+?)\s*%}([\s\S]*?)(?:{%\s*else\s*%}([\s\S]*?))?{%\s*endif\s*%}/g, (_, cond, ifContent, elseContent = '') => {
+        const m = cond.match(/^(.+?)\s*(!=|==)\s*blank$/);
+        if (m) {
+          const [, left, op] = m;
+          const v = resolvePath(left);
+          const isEmpty = v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
+          return (op === '!=') ? (isEmpty ? elseContent : ifContent) : (isEmpty ? ifContent : elseContent);
+        }
+        const truthy = Boolean(resolvePath(cond.trim()));
+        return truthy ? ifContent : elseContent;
+      });
+
+      // unless ... endunless
+      t = t.replace(/{%\s*unless\s+([^%]+?)\s*%}([\s\S]*?){%\s*endunless\s*%}/g, (_, cond, content) => {
+        const truthy = Boolean(resolvePath(cond.trim()));
+        return truthy ? '' : content;
+      });
+
+      return t;
+    };
+
+    const processFor = (t) => {
+      return t.replace(/{%\s*for\s+(\w+)\s+in\s+([\w.]+)\s*%}([\s\S]*?){%\s*endfor\s*%}/g, (_, itemVar, collection, inner) => {
+        const list = resolvePath(collection) || [];
+        if (!Array.isArray(list)) return '';
+        return list.map(item => {
+          const localCtx = { ...ctx, [itemVar]: item };
+          return renderTemplate(inner, localCtx);
+        }).join('\n');
+      });
+    };
+
+    const processVars = (t) => t.replace(/{{\s*([^}]+?)\s*}}/g, (_, expr) => {
+      const parts = expr.split('|').map(p => p.trim());
+      const path = parts[0];
+      const filters = parts.slice(1);
+      const val = resolvePath(path);
+      const out = applyFilters(val, filters);
+      return out == null ? '' : String(out);
+    });
+
+    // Run processors in order: assign -> if/unless -> for -> vars
+    let out = src;
+    out = processAssign(out);
+    // repeat conditionals/for loops to handle nesting
+    let prev;
+    do {
+      prev = out;
+      out = processIfUnless(out);
+      out = processFor(out);
+    } while (out !== prev);
+    out = processVars(out);
+
+    return out;
+  };
+
+  const MerchantOrders = () => {
+    const { orders, addOrder, updateOrder, removeOrder, products, currentUser, inventory, addReturnOrder } = useInventory();
+    const { toast } = useToast();
+    const templateStorageKey = currentUser ? `shipping_label_template_${currentUser.id}` : 'shipping_label_template_default';
+
+    const [activeTab, setActiveTab] = useState('all');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isReturnDialogOpen, setIsReturnDialogOpen] = useState(false);
+  
+  // Function to open preview window for shipping label
+  const openPreviewWindow = (renderedHtml, autoPrint = false) => {
+    const w = window.open('', '_blank');
+    if (!w) {
+      toast({ title: 'Popup Blocked', description: 'Please allow popups for preview.' });
+      return;
+    }
+
+    let docHtml = (renderedHtml || '').trim();
+    const hasDoc = /^\s*<!doctype/i.test(docHtml) || /^\s*<html/i.test(docHtml);
+    if (!hasDoc) {
+      docHtml = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Label Preview</title></head><body>${docHtml}</body></html>`;
+    }
+
+    try {
+      w.document.open();
+      w.document.write(docHtml);
+      w.document.close();
+    } catch (err) {
+      console.error('Failed to write preview window document', err);
+      toast({ title: 'Preview Failed', description: 'Could not render preview. Check console for details.', variant: 'destructive' });
+      try { w.close(); } catch (e) {}
+      return;
+    }
+
+    if (autoPrint) {
+      setTimeout(() => {
+        try {
+          w.focus();
+          w.print();
+        } catch (e) {
+          console.error('Auto print failed', e);
+          toast({ title: 'Print Failed', description: 'Could not start printing from preview.', variant: 'destructive' });
+        }
+      }, 600);
+    }
+  };
+
+  // Edit order dialog state
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editOrder, setEditOrder] = useState(null);
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editCity, setEditCity] = useState('');
+  const [editState, setEditState] = useState('');
+  const [editPincode, setEditPincode] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editItems, setEditItems] = useState([]);
+  const [editPackingFeeOverride, setEditPackingFeeOverride] = useState('');
+  const [editDeliveryPartner, setEditDeliveryPartner] = useState('');
+
+  // New UI state: search and date range filter
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dateFilter, setDateFilter] = useState('all'); // 'all','today','yesterday','last7','last30','custom'
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
 
   // Function to download shipping label PDF from base64 string
   const downloadShippingLabel = (base64String, orderId) => {
@@ -42,18 +210,115 @@ const MerchantOrders = () => {
   const [phone, setPhone] = useState('');
   const [items, setItems] = useState([{ productId: '', quantity: 1 }]);
   const [shippingLabelFile, setShippingLabelFile] = useState(null);
+  const [newDeliveryPartner, setNewDeliveryPartner] = useState('');
 
   // States for Return tab dialog
   const [returnItems, setReturnItems] = useState([{ productId: '', quantity: 1 }]);
   const [returnType, setReturnType] = useState('RTO'); // 'RTO' or 'Damaged'
 
+  // Multi-select for merchant panel
+  const [selectedOrderIds, setSelectedOrderIds] = useState([]);
+  const [expandedOrderIds, setExpandedOrderIds] = useState(new Set());
+
+  const toggleExpandOrder = (orderId) => {
+    setExpandedOrderIds(prev => {
+      const ns = new Set(prev);
+      if (ns.has(orderId)) ns.delete(orderId);
+      else ns.add(orderId);
+      return ns;
+    });
+  };
+
   const merchantOrders = orders.filter(o => o.merchantId === currentUser?.id);
 
-  // Filter orders based on active tab
-  const filteredOrders = activeTab === 'all' ? merchantOrders : merchantOrders.filter(o => {
+  // Date range helpers
+  const getRangeStartEnd = () => {
+    const today = new Date();
+    const startOfDay = d => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
+    const endOfDay = d => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
+    switch (dateFilter) {
+      case 'today':
+        return { start: startOfDay(today), end: endOfDay(today) };
+      case 'yesterday': {
+        const y = new Date(); y.setDate(y.getDate() - 1);
+        return { start: startOfDay(y), end: endOfDay(y) };
+      }
+      case 'last7': {
+        const from = new Date(); from.setDate(from.getDate() - 6); // last 7 days including today
+        return { start: startOfDay(from), end: endOfDay(today) };
+      }
+      case 'last30': {
+        const from = new Date(); from.setDate(from.getDate() - 29);
+        return { start: startOfDay(from), end: endOfDay(today) };
+      }
+      case 'custom': {
+        if (!customFrom || !customTo) return null;
+        const s = new Date(customFrom); const e = new Date(customTo);
+        return { start: startOfDay(s), end: endOfDay(e) };
+      }
+      case 'all':
+      default:
+        return null;
+    }
+  };
+
+  // Filter orders by status, date range and search query
+  const filteredByStatus = activeTab === 'all' ? merchantOrders : merchantOrders.filter(o => {
     if (activeTab === 'return') return o.status === 'return';
     return o.status === activeTab;
   });
+
+  const range = getRangeStartEnd();
+  const filteredOrders = filteredByStatus.filter(order => {
+    // Date filter
+    if (range) {
+      const orderDate = order.date ? new Date(order.date) : null;
+      if (!orderDate) return false;
+      if (orderDate < range.start || orderDate > range.end) return false;
+    }
+    // Search filter
+    if (searchQuery && searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase();
+      const inId = order.id && order.id.toLowerCase().includes(q);
+      const inCustomer = order.customerName && order.customerName.toLowerCase().includes(q);
+      const inItems = (order.items || []).map(it => it.name || '').join(', ').toLowerCase().includes(q);
+      const inCourierPartner = order.deliveryPartner && order.deliveryPartner.toLowerCase().includes(q);
+      if (!(inId || inCustomer || inItems || inCourierPartner)) return false;
+    }
+    return true;
+  });
+
+  // Multi-select helpers for merchant panel
+  const toggleSelect = (id) => {
+    setSelectedOrderIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const toggleSelectAll = () => {
+    const allIds = filteredOrders.map(o => o.id);
+    const allSelected = allIds.length > 0 && allIds.every(id => selectedOrderIds.includes(id));
+    setSelectedOrderIds(allSelected ? [] : allIds);
+  };
+
+  const areAllSelectedPending = () => {
+    if (selectedOrderIds.length === 0) return false;
+    return selectedOrderIds.every(id => {
+      const o = merchantOrders.find(o => o.id === id) || orders.find(o => o.id === id);
+      return o && o.status === 'pending';
+    });
+  };
+
+  const deleteSelected = () => {
+    if (!confirm('Delete selected orders?')) return;
+    selectedOrderIds.forEach(id => removeOrder(id));
+    setSelectedOrderIds([]);
+  };
+
+  const openEditSelected = () => {
+    if (selectedOrderIds.length !== 1) return;
+    const id = selectedOrderIds[0];
+    const order = merchantOrders.find(o => o.id === id);
+    if (order && order.status === 'pending') openEditDialog(order);
+  };
 
   // Handlers for Add Order dialog
   const handleAddItem = () => {
@@ -136,6 +401,24 @@ const MerchantOrders = () => {
         alert(`Quantity cannot exceed available inventory minus pending orders (${availableQty}).`);
         return;
       }
+      // Calculate weight per item (use max of actual and volumetric) and total weight per item
+      const itemsWithWeights = items.map(item => {
+        const product = products.find(p => p.id === item.productId) || {};
+        const actualWeight = product.weightKg || 0;
+        const volumetricWeight = calculateVolumetricWeight(product.lengthCm || 0, product.breadthCm || 0, product.heightCm || 0);
+        const weightPerItem = Math.max(actualWeight, volumetricWeight);
+        const totalWeight = weightPerItem * (item.quantity || 0);
+        return {
+          productId: item.productId,
+          name: product.name || 'Unknown',
+          quantity: item.quantity,
+          weightPerItemKg: parseFloat(weightPerItem.toFixed(3)),
+          weightKg: parseFloat(totalWeight.toFixed(3)),
+        };
+      });
+
+      const totalWeightKg = itemsWithWeights.reduce((sum, it) => sum + (it.weightKg || 0), 0);
+
       const newOrder = {
         merchantId: currentUser.id,
         customerName,
@@ -144,11 +427,9 @@ const MerchantOrders = () => {
         state,
         pincode,
         phone,
-        items: items.map(item => ({
-          productId: item.productId,
-          name: products.find(p => p.id === item.productId)?.name || 'Unknown',
-          quantity: item.quantity,
-        })),
+        deliveryPartner: newDeliveryPartner,
+        items: itemsWithWeights,
+        totalWeightKg: parseFloat(totalWeightKg.toFixed(3)),
         status: 'pending',
         date: new Date().toISOString().split('T')[0],
       };
@@ -161,12 +442,13 @@ const MerchantOrders = () => {
         console.log('Closing dialog after adding order');
         setIsDialogOpen(false);
       }, 0);
-      setCustomerName('');
+  setCustomerName('');
       setAddress('');
       setCity('');
       setState('');
       setPincode('');
       setPhone('');
+  setNewDeliveryPartner('');
       setItems([{ productId: '', quantity: 1 }]);
       // Remove redundant setTimeout for closing dialog
     } else if (mode === 'upload') {
@@ -245,9 +527,322 @@ const MerchantOrders = () => {
     setReturnType('RTO');
   };
 
+  // Edit dialog helpers
+  const openEditDialog = (order) => {
+    setEditOrder(order);
+    setEditCustomerName(order.customerName || '');
+    setEditAddress(order.address || '');
+    setEditCity(order.city || '');
+    setEditState(order.state || '');
+    setEditPincode(order.pincode || '');
+    setEditPhone(order.phone || '');
+    setEditDeliveryPartner(order.deliveryPartner || '');
+    setEditItems((order.items || []).map(it => ({ productId: it.productId, quantity: it.quantity })));
+    setEditPackingFeeOverride(order.packingFee !== undefined ? String(order.packingFee) : '');
+    setIsEditOpen(true);
+  };
+
+  const handleEditItemChange = (index, field, value) => {
+    setEditItems(prev => {
+      const arr = [...prev];
+      arr[index] = { ...arr[index], [field]: field === 'quantity' ? parseInt(value, 10) || 0 : value };
+      return arr;
+    });
+  };
+
+  const handleAddEditItem = () => setEditItems(prev => [...prev, { productId: '', quantity: 1 }]);
+  const handleRemoveEditItem = (index) => setEditItems(prev => prev.filter((_, i) => i !== index));
+
+  const handleSaveEdit = () => {
+    if (!editOrder) return;
+    if (!editCustomerName.trim()) { alert('Customer name required'); return; }
+    if (!editAddress.trim()) { alert('Address required'); return; }
+    if (editItems.length === 0 || editItems.some(it => !it.productId || it.quantity <= 0)) { alert('Add at least one valid item'); return; }
+
+    // Recalculate item weights
+    const itemsWithWeights = editItems.map(item => {
+      const product = products.find(p => p.id === item.productId) || {};
+      const actualWeight = product.weightKg || 0;
+      const volumetricWeight = calculateVolumetricWeight(product.lengthCm || 0, product.breadthCm || 0, product.heightCm || 0);
+      const weightPerItem = Math.max(actualWeight, volumetricWeight);
+      const totalWeight = weightPerItem * (item.quantity || 0);
+      return {
+        productId: item.productId,
+        name: product.name || 'Unknown',
+        quantity: item.quantity,
+        weightPerItemKg: parseFloat(weightPerItem.toFixed(3)),
+        weightKg: parseFloat(totalWeight.toFixed(3)),
+      };
+    });
+    const totalWeightKg = parseFloat(itemsWithWeights.reduce((s, it) => s + (it.weightKg || 0), 0).toFixed(3));
+
+    // Calculate packing fee unless overridden
+    let packingFee = 0;
+    if (editPackingFeeOverride !== '') {
+      packingFee = parseFloat(editPackingFeeOverride) || 0;
+    } else {
+      packingFee = itemsWithWeights.reduce((sum, it) => {
+        const prod = products.find(p => p.id === it.productId);
+        if (!prod) return sum;
+        const actual = prod.weightKg || 0;
+        const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+        const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
+        return sum + feePerItem * (it.quantity || 0);
+      }, 0);
+    }
+
+    const updated = {
+      customerName: editCustomerName.trim(),
+      address: editAddress.trim(),
+      city: editCity.trim(),
+      state: editState.trim(),
+      pincode: editPincode.trim(),
+      phone: editPhone.trim(),
+      deliveryPartner: editDeliveryPartner.trim(),
+      items: itemsWithWeights,
+      totalWeightKg,
+      packingFee: parseFloat(packingFee.toFixed(2)),
+    };
+
+    updateOrder(editOrder.id, updated);
+    setIsEditOpen(false);
+    setEditOrder(null);
+  };
+
+  // Add helper to render top action buttons for merchant bulk actions
+  const groupDeleteSelected = () => {
+    if (!confirm('Delete selected orders?')) return;
+    selectedOrderIds.forEach(id => removeOrder(id));
+    setSelectedOrderIds([]);
+  };
+
+  // Generate labels as a single PDF with multiple pages (one label per page)
+  const generateMultipleLabels = async (selectedOrders) => {
+    try {
+      if (!selectedOrders || selectedOrders.length === 0) {
+        toast({ title: 'No Orders Selected', description: 'Please select at least one order to generate labels.', variant: 'destructive' });
+        return;
+      }
+
+      const template = localStorage.getItem(templateStorageKey);
+      if (!template) {
+        toast({ title: 'Template Not Found', description: 'Please configure a shipping label template in Settings first.', variant: 'destructive' });
+        return;
+      }
+
+      // Create PDF with compression
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true
+      });
+      
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      
+      // layout with margins for single label per page
+      const margin = 15; // 15mm margins for better presentation
+      
+      // Calculate label dimensions to fit the page properly
+      const labelW = pageWidth - (margin * 2); // Full width minus margins
+      const labelH = pageHeight - (margin * 2); // Full height minus margins
+
+      // hidden container for rendering labels
+      const container = document.createElement('div');
+      container.style.position = 'fixed';
+      container.style.left = '-10000px';
+      container.style.top = '0';
+      container.style.width = labelW + 'mm';
+      document.body.appendChild(container);
+
+      for (let i = 0; i < selectedOrders.length; i++) {
+        const order = selectedOrders[i];
+
+        const orderItems = order.items.map(item => {
+          const product = products.find(p => p.id === item.productId);
+          return {
+            title: product?.name || 'Unknown Product',
+            quantity: item.quantity,
+            price: item.price || 0,
+            total: item.quantity * (item.price || 0),
+            sku: product?.sku || ''
+          };
+        });
+
+        const total_quantity = orderItems.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+        const addressParts = (order.address || '').split(',').map(p => p.trim());
+
+        const data = {
+          shop: { name: currentUser?.companyName || 'My Shop', email: currentUser?.email || '', phone: currentUser?.phone || '', address: currentUser?.address || '', website: currentUser?.website || '' },
+          order: { name: order.id, created_at: order.createdAt, po_number: order.poNumber || '', total_quantity, total_amount: orderItems.reduce((s, it) => s + (it.total || 0), 0) },
+          shipping_address: { name: order.customerName || '', address1: addressParts[0] || '', address2: addressParts.slice(1).join(', ') || '', city_province_zip: `${order.city || ''}, ${order.state || ''} ${order.pincode || ''}`, country: 'India', phone: order.phone || '' },
+          items: orderItems,
+          line_items: orderItems,
+          fulfillment: { line_items: orderItems },
+          deliveryPartner: order.deliveryPartner || ''
+        };
+
+        const processedTemplate = template.replace(/\r\n/g, '\n').replace(/\{\%\s+/g, '{%').replace(/\s+\%\}/g, '%}').replace(/\{\{\s+/g, '{{').replace(/\s+\}\}/g, '}}');
+        const rendered = renderTemplate(processedTemplate, data);
+
+        // create label wrapper optimized for single-page printing
+        const labelDiv = document.createElement('div');
+        labelDiv.style.width = `${labelW}mm`;
+        labelDiv.style.height = `${labelH}mm`;
+        labelDiv.style.boxSizing = 'border-box';
+  labelDiv.style.padding = '0mm';
+        labelDiv.style.background = '#fff';
+        labelDiv.style.overflow = 'hidden';
+        labelDiv.style.fontSize = '12pt';
+        labelDiv.style.lineHeight = '1.4';
+        labelDiv.style.display = 'flex';
+        labelDiv.style.flexDirection = 'column';
+        labelDiv.style.justifyContent = 'space-between';
+        labelDiv.style.alignItems = 'center';
+        labelDiv.style.textAlign = 'center';
+        labelDiv.innerHTML = rendered;
+
+        // Remove UI elements that should not appear in the PDF (print buttons, debug actions, scripts)
+        try {
+          // remove elements with common print-only classes/buttons
+          const removeSelectors = ['.no-print', '.print-actions', 'button[onclick*="print"]', 'button.print', 'a.print', 'script'];
+          removeSelectors.forEach(sel => {
+            const nodes = labelDiv.querySelectorAll(sel);
+            nodes.forEach(n => n.remove());
+          });
+
+          // remove any remaining onclick handlers to be safe
+          labelDiv.querySelectorAll('[onclick]').forEach(el => el.removeAttribute('onclick'));
+        } catch (e) {
+          // ignore any errors manipulating the template
+        }
+
+        // Clear previous label and add new one
+        container.innerHTML = '';
+        container.appendChild(labelDiv);
+
+        // Small delay for proper rendering
+        await new Promise(r => setTimeout(r, 100));
+
+        // Optimized canvas generation (reduced scale + JPEG compression)
+        const canvas = await html2canvas(labelDiv, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          imageTimeout: 0,
+          removeContainer: true,
+          async: true
+        });
+
+        // Use JPEG at 80% to reduce size
+        const imgData = canvas.toDataURL('image/jpeg', 0.8);
+
+        // Add optimized image to PDF
+        pdf.addImage(imgData, 'JPEG', margin, margin, labelW, labelH, undefined, 'FAST');
+
+        // Clean up canvas element
+        try { canvas.remove(); } catch (e) {}
+
+        // Add a new page if this isn't the last label
+        if (i < selectedOrders.length - 1) {
+          pdf.addPage();
+        }
+      }
+
+      // Clean up the temporary container
+      document.body.removeChild(container);
+
+      // Save the PDF with all labels
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+      pdf.save(`shipping_labels_${timestamp}.pdf`);
+    } catch (err) {
+      console.error('PDF label generation error', err);
+      toast({ title: 'Label Generation Failed', description: 'Could not create PDF labels. Check console for details.', variant: 'destructive' });
+    }
+  };
+
+  const groupDownloadLabels = () => {
+    const selectedOrders = selectedOrderIds.map(id => orders.find(o => o.id === id) || merchantOrders.find(o => o.id === id)).filter(Boolean);
+    if (selectedOrders.length === 0) {
+      toast({ 
+        title: 'No Orders Selected', 
+        description: 'Please select orders to generate shipping labels.', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+    generateMultipleLabels(selectedOrders);
+  };
+
+  const renderTopActions = () => {
+    if (selectedOrderIds.length === 0) return null;
+    const singleSelected = selectedOrderIds.length === 1 ? merchantOrders.find(o => o.id === selectedOrderIds[0]) : null;
+    return (
+      <div className="ml-auto flex items-center gap-2">
+        <div className="font-medium">{selectedOrderIds.length} selected</div>
+        {singleSelected && singleSelected.status === 'pending' && (
+          <Button variant="outline" size="sm" onClick={openEditSelected}>Edit Selected</Button>
+        )}
+        {areAllSelectedPending() && (
+          <Button variant="destructive" size="sm" onClick={groupDeleteSelected}>Delete Selected</Button>
+        )}
+        <Button variant="outline" size="sm" onClick={groupDownloadLabels}>Download Labels</Button>
+      </div>
+    );
+  };
+
   return (
     <div className="p-2 sm:p-6 space-y-6">
-      <h1 className="text-3xl font-bold mb-4">Merchant: My Orders</h1>
+      <div className="flex items-start justify-between">
+        <h1 className="text-3xl font-bold mb-4">Merchant: My Orders</h1>
+        <div className="ml-4">
+          <Button onClick={() => setIsDialogOpen(true)}>Add Order</Button>
+        </div>
+      </div>
+
+      {/* Filters: search + date range */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Input
+            placeholder="Search orders by id, customer, courier partner or item..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full sm:w-64"
+          />
+          <Select value={dateFilter} onValueChange={setDateFilter}>
+            <SelectTrigger className="w-40">
+              <SelectValue>
+                {dateFilter === 'all' && 'All dates'}
+                {dateFilter === 'today' && 'Today'}
+                {dateFilter === 'yesterday' && 'Yesterday'}
+                {dateFilter === 'last7' && 'Last 7 days'}
+                {dateFilter === 'last30' && 'Last 30 days'}
+                {dateFilter === 'custom' && 'Custom'}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All dates</SelectItem>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="yesterday">Yesterday</SelectItem>
+              <SelectItem value="last7">Last 7 days</SelectItem>
+              <SelectItem value="last30">Last 30 days</SelectItem>
+              <SelectItem value="custom">Custom</SelectItem>
+            </SelectContent>
+          </Select>
+          {dateFilter === 'custom' && (
+            <>
+              <Input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="w-36" />
+              <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="w-36" />
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => { setSearchQuery(''); setDateFilter('all'); setCustomFrom(''); setCustomTo(''); }}>Clear</Button>
+        </div>
+      </div>
+
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="all">All</TabsTrigger>
@@ -261,6 +856,7 @@ const MerchantOrders = () => {
           <Card className="mt-6">
             <CardHeader>
               <h2 className="text-xl font-semibold">All Orders</h2>
+              {renderTopActions()}
             </CardHeader>
             <CardContent>
               {filteredOrders.length === 0 ? (
@@ -269,46 +865,122 @@ const MerchantOrders = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>
+                        <input
+                          type="checkbox"
+                          checked={filteredOrders.length > 0 && filteredOrders.every(o => selectedOrderIds.includes(o.id))}
+                          onChange={toggleSelectAll}
+                        />
+                      </TableHead>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer</TableHead>
+                      <TableHead>Date &amp; Time</TableHead>
+                      <TableHead>Courier Partner</TableHead>
                       <TableHead>Items</TableHead>
                       <TableHead>Quantity</TableHead>
+                      <TableHead>Weight (kg)</TableHead>
+                      <TableHead>Packing Fee (₹)</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrders.map(order => (
+                    {filteredOrders.map(order => {
+                      // calculate packing fee for this order
+                      const packingFee = (order.items || []).reduce((sum, item) => {
+                        const prod = products.find(p => p.id === item.productId);
+                        if (!prod) return sum;
+                        const actual = prod.weightKg || 0;
+                        const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+                        const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
+                        return sum + feePerItem * (item.quantity || 0);
+                      }, 0);
+                      return (
                       <TableRow key={order.id}>
+                        <TableCell>
+                          <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
+                        </TableCell>
                         <TableCell>{order.id}</TableCell>
                         <TableCell>{order.customerName}</TableCell>
-                        <TableCell>{order.items.map(item => item.name).join(', ')}</TableCell>
+                        <TableCell>{order.date}{order.time ? ` ${order.time}` : ''}</TableCell>
+                        <TableCell>{order.deliveryPartner || <span className="italic text-muted-foreground">pending</span>}</TableCell>
+                        <TableCell>
+                          <div className="relative inline-block text-left">
+                            <button
+                              type="button"
+                              className="inline-flex justify-center w-full rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+                              id={`menu-button-${order.id}`}
+                              aria-expanded="true"
+                              aria-haspopup="true"
+                              onClick={() => toggleExpandOrder(order.id)}
+                            >
+                              Items
+                              <svg
+                                className="ml-2 -mr-1 h-5 w-5"
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d={expandedOrderIds.has(order.id) ? "M5.23 7.21a.75.75 0 011.06.02L10 11.293l3.71-4.06a.75.75 0 111.08 1.04l-4.25 4.65a.75.75 0 01-1.08 0l-4.25-4.65a.75.75 0 01.02-1.06z" : "M14.77 12.79a.75.75 0 01-1.06-.02L10 8.707l-3.71 4.06a.75.75 0 11-1.08-1.04l4.25-4.65a.75.75 0 011.08 0l4.25 4.65a.75.75 0 01-.02 1.06z"}
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                            </button>
+                            {expandedOrderIds.has(order.id) && (
+                              <div
+                                className="origin-top-left absolute left-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-10"
+                                role="menu"
+                                aria-orientation="vertical"
+                                aria-labelledby={`menu-button-${order.id}`}
+                                tabIndex="-1"
+                              >
+                                <div className="py-1" role="none">
+                                  {order.items && order.items.length > 0 ? (
+                                    order.items.map((item, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="text-gray-700 block px-4 py-2 text-sm"
+                                        role="menuitem"
+                                        tabIndex="-1"
+                                        id={`menu-item-${idx}`}
+                                      >
+                                        {item.name} (x{item.quantity})
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <div className="text-gray-700 block px-4 py-2 text-sm italic text-muted-foreground">No items marked</div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>{order.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
-                  <TableCell>{order.status}</TableCell>
-                  <TableCell>
-                    {order.status === 'pending' && (
-                      <Button variant="outline" size="sm" onClick={() => removeOrder(order.id)}>
-                        Delete
-                      </Button>
-                    )}
-                    {order.shippingLabelBase64 && (
-                      <Button variant="outline" size="sm" onClick={() => downloadShippingLabel(order.shippingLabelBase64, order.id)}>
-                        Download Shipping Label
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
-  </TabsContent>
+                        <TableCell>{((order.totalWeightKg !== undefined && order.totalWeightKg !== null)
+                          ? order.totalWeightKg
+                          : (order.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0)
+                        ).toFixed(3)}</TableCell>
+                        <TableCell>₹{packingFee.toFixed(2)}</TableCell>
+                        <TableCell>
+                          <StatusTimelineDropdown order={order} isExpanded={expandedOrderIds.has(`status-${order.id}`)} onToggle={() => toggleExpandOrder(`status-${order.id}`)} />
+                        </TableCell>
+                      </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="pending">
           <Card className="mt-6">
             <CardHeader>
               <h2 className="text-xl font-semibold">Pending Orders</h2>
+              {renderTopActions()}
             </CardHeader>
             <CardContent>
               {filteredOrders.length === 0 ? (
@@ -317,30 +989,53 @@ const MerchantOrders = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>
+                        <input
+                          type="checkbox"
+                          checked={filteredOrders.length > 0 && filteredOrders.every(o => selectedOrderIds.includes(o.id))}
+                          onChange={toggleSelectAll}
+                        />
+                      </TableHead>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer</TableHead>
                       <TableHead>Items</TableHead>
                       <TableHead>Quantity</TableHead>
+                      <TableHead>Weight (kg)</TableHead>
+                      <TableHead>Packing Fee (₹)</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrders.map(order => (
+                    {filteredOrders.map(order => {
+                      // calculate packing fee for this order
+                      const packingFee = (order.items || []).reduce((sum, item) => {
+                        const prod = products.find(p => p.id === item.productId);
+                        if (!prod) return sum;
+                        const actual = prod.weightKg || 0;
+                        const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+                        const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
+                        return sum + feePerItem * (item.quantity || 0);
+                      }, 0);
+                      return (
                       <TableRow key={order.id}>
+                        <TableCell>
+                          <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
+                        </TableCell>
                         <TableCell>{order.id}</TableCell>
                         <TableCell>{order.customerName}</TableCell>
                         <TableCell>{order.items.map(item => item.name).join(', ')}</TableCell>
                         <TableCell>{order.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
-                        <TableCell>{order.status}</TableCell>
+                        <TableCell>{((order.totalWeightKg !== undefined && order.totalWeightKg !== null)
+                          ? order.totalWeightKg
+                          : (order.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0)
+                        ).toFixed(3)}</TableCell>
+                        <TableCell>₹{packingFee.toFixed(2)}</TableCell>
                         <TableCell>
-                          {order.status === 'pending' && (
-                            <Button variant="outline" size="sm" onClick={() => removeOrder(order.id)}>
-                              Delete
-                            </Button>
-                          )}
+                          <StatusTimelineDropdown order={order} isExpanded={expandedOrderIds.has(`status-${order.id}`)} onToggle={() => toggleExpandOrder(`status-${order.id}`)} />
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}
@@ -352,6 +1047,7 @@ const MerchantOrders = () => {
           <Card className="mt-6">
             <CardHeader>
               <h2 className="text-xl font-semibold">Packed Orders</h2>
+              {renderTopActions()}
             </CardHeader>
             <CardContent>
               {filteredOrders.length === 0 ? (
@@ -360,30 +1056,53 @@ const MerchantOrders = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>
+                        <input
+                          type="checkbox"
+                          checked={filteredOrders.length > 0 && filteredOrders.every(o => selectedOrderIds.includes(o.id))}
+                          onChange={toggleSelectAll}
+                        />
+                      </TableHead>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer</TableHead>
                       <TableHead>Items</TableHead>
                       <TableHead>Quantity</TableHead>
+                      <TableHead>Weight (kg)</TableHead>
+                      <TableHead>Packing Fee (₹)</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrders.map(order => (
+                    {filteredOrders.map(order => {
+                      // calculate packing fee for this order
+                      const packingFee = (order.items || []).reduce((sum, item) => {
+                        const prod = products.find(p => p.id === item.productId);
+                        if (!prod) return sum;
+                        const actual = prod.weightKg || 0;
+                        const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+                        const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
+                        return sum + feePerItem * (item.quantity || 0);
+                      }, 0);
+                      return (
                       <TableRow key={order.id}>
+                        <TableCell>
+                          <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
+                        </TableCell>
                         <TableCell>{order.id}</TableCell>
                         <TableCell>{order.customerName}</TableCell>
                         <TableCell>{order.items.map(item => item.name).join(', ')}</TableCell>
                         <TableCell>{order.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
-                        <TableCell>{order.status}</TableCell>
+                        <TableCell>{((order.totalWeightKg !== undefined && order.totalWeightKg !== null)
+                          ? order.totalWeightKg
+                          : (order.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0)
+                        ).toFixed(3)}</TableCell>
+                        <TableCell>₹{packingFee.toFixed(2)}</TableCell>
                         <TableCell>
-                          {order.status === 'pending' && (
-                            <Button variant="outline" size="sm" onClick={() => removeOrder(order.id)}>
-                              Delete
-                            </Button>
-                          )}
+                          <StatusTimelineDropdown order={order} isExpanded={expandedOrderIds.has(`status-${order.id}`)} onToggle={() => toggleExpandOrder(`status-${order.id}`)} />
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}
@@ -395,6 +1114,7 @@ const MerchantOrders = () => {
           <Card className="mt-6">
             <CardHeader>
               <h2 className="text-xl font-semibold">Dispatched Orders</h2>
+              {renderTopActions()}
             </CardHeader>
             <CardContent>
               {filteredOrders.length === 0 ? (
@@ -403,30 +1123,53 @@ const MerchantOrders = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>
+                        <input
+                          type="checkbox"
+                          checked={filteredOrders.length > 0 && filteredOrders.every(o => selectedOrderIds.includes(o.id))}
+                          onChange={toggleSelectAll}
+                        />
+                      </TableHead>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer</TableHead>
                       <TableHead>Items</TableHead>
                       <TableHead>Quantity</TableHead>
+                      <TableHead>Weight (kg)</TableHead>
+                      <TableHead>Packing Fee (₹)</TableHead>
                       <TableHead>Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrders.map(order => (
+                    {filteredOrders.map(order => {
+                      // calculate packing fee for this order
+                      const packingFee = (order.items || []).reduce((sum, item) => {
+                        const prod = products.find(p => p.id === item.productId);
+                        if (!prod) return sum;
+                        const actual = prod.weightKg || 0;
+                        const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+                        const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
+                        return sum + feePerItem * (item.quantity || 0);
+                      }, 0);
+                      return (
                       <TableRow key={order.id}>
+                        <TableCell>
+                          <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
+                        </TableCell>
                         <TableCell>{order.id}</TableCell>
                         <TableCell>{order.customerName}</TableCell>
                         <TableCell>{order.items.map(item => item.name).join(', ')}</TableCell>
                         <TableCell>{order.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
-                        <TableCell>{order.status}</TableCell>
+                        <TableCell>{((order.totalWeightKg !== undefined && order.totalWeightKg !== null)
+                          ? order.totalWeightKg
+                          : (order.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0)
+                        ).toFixed(3)}</TableCell>
+                        <TableCell>₹{packingFee.toFixed(2)}</TableCell>
                         <TableCell>
-                          {order.status === 'pending' && (
-                            <Button variant="outline" size="sm" onClick={() => removeOrder(order.id)}>
-                              Delete
-                            </Button>
-                          )}
+                          <StatusTimelineDropdown order={order} isExpanded={expandedOrderIds.has(`status-${order.id}`)} onToggle={() => toggleExpandOrder(`status-${order.id}`)} />
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}
@@ -438,6 +1181,7 @@ const MerchantOrders = () => {
           <Card className="mt-6">
             <CardHeader>
               <h2 className="text-xl font-semibold">Return Orders</h2>
+              {renderTopActions()}
             </CardHeader>
             <CardContent>
               {filteredOrders.length === 0 ? (
@@ -473,95 +1217,149 @@ const MerchantOrders = () => {
       </Tabs>
 
       {activeTab !== 'return' && (
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>Add Order</Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg max-h-[80vh] overflow-auto" aria-describedby="add-order-desc">
-            <DialogTitle>Add Order</DialogTitle>
-            <DialogDescription id="add-order-desc">
-              Add order manually or upload a shipping label.
-            </DialogDescription>
-            <div className="mt-4 space-y-4">
-              <Tabs value={mode} onValueChange={setMode}>
-                <TabsList>
-                  <TabsTrigger value="manual">Manual Entry</TabsTrigger>
-                  <TabsTrigger value="upload">Upload Shipping Label</TabsTrigger>
-                </TabsList>
-                <TabsContent value="manual">
-                  <div>
-                    <Label>Customer Name</Label>
-                    <Input value={customerName} onChange={e => setCustomerName(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Address</Label>
-                    <Input value={address} onChange={e => setAddress(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>City</Label>
-                    <Input value={city} onChange={e => setCity(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>State</Label>
-                    <Input value={state} onChange={e => setState(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Pincode</Label>
-                    <Input value={pincode} onChange={e => setPincode(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Phone Number</Label>
-                    <Input value={phone} onChange={e => setPhone(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Item</Label>
-                    {items.map((item, index) => (
-                      <div key={index} className="flex space-x-2 items-center mb-2">
-                        <Select
-                          value={item.productId}
-                          onValueChange={value => handleItemChange(index, 'productId', value)}
-                        >
-                          <SelectTrigger className="w-48">
-                            <SelectValue placeholder="Select product" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {products.map(product => (
-                              <SelectItem key={product.id} value={product.id}>
-                                {product.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Input
-                          type="number"
-                          min="1"
-                          value={item.quantity}
-                          onChange={e => handleItemChange(index, 'quantity', e.target.value)}
-                          className="w-20"
-                        />
-                        <Button variant="outline" onClick={() => handleRemoveItem(index)}>Remove</Button>
-                      </div>
-                    ))}
-                    {items.length === 0 && (
-                      <Button variant="outline" onClick={handleAddItem}>Add Item</Button>
-                    )}
-                  </div>
-                </TabsContent>
-                <TabsContent value="upload">
-                  <div>
-                    <Label>Shipping Label PDF</Label>
-                    <Input type="file" accept="application/pdf" onChange={handleFileChange} />
-                    {shippingLabelFile && <p>Selected file: {shippingLabelFile.name}</p>}
-                  </div>
-                </TabsContent>
-              </Tabs>
-              <div className="mt-4 flex justify-end space-x-2">
-                <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-                <Button type="button" onClick={() => { console.log('Submit clicked'); handleSubmit(); }}>Submit</Button>
+        <>
+      {/* Edit Order Dialog */}
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-auto" aria-describedby="edit-order-desc">
+          <DialogTitle>Edit Order</DialogTitle>
+          <DialogDescription id="edit-order-desc">Edit order details (only allowed when pending)</DialogDescription>
+          <div className="space-y-4 mt-4">
+            <div className="grid grid-cols-1 gap-2">
+              <Label>Customer Name</Label>
+              <Input value={editCustomerName} onChange={e => setEditCustomerName(e.target.value)} />
+              <Label>Address</Label>
+              <Input value={editAddress} onChange={e => setEditAddress(e.target.value)} />
+              <div className="flex gap-2">
+                <Input value={editCity} onChange={e => setEditCity(e.target.value)} placeholder="City" />
+                <Input value={editState} onChange={e => setEditState(e.target.value)} placeholder="State" />
               </div>
+              <div className="flex gap-2">
+                <Input value={editPincode} onChange={e => setEditPincode(e.target.value)} placeholder="Pincode" />
+                <Input value={editPhone} onChange={e => setEditPhone(e.target.value)} placeholder="Phone" />
+              </div>
+              <div className="flex gap-2 mt-2">
+                <Label>Courier Partner</Label>
+                <Input value={editDeliveryPartner} onChange={e => setEditDeliveryPartner(e.target.value)} placeholder="Courier / Delivery Partner" />
+              </div>
+              <Label>Items</Label>
+              {editItems.map((it, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <Select value={it.productId} onValueChange={(v) => handleEditItemChange(idx, 'productId', v)}>
+                    <SelectTrigger className="w-48"><SelectValue placeholder="Select product" /></SelectTrigger>
+                    <SelectContent>
+                      {products.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Input type="number" className="w-20" value={it.quantity} onChange={e => handleEditItemChange(idx, 'quantity', e.target.value)} />
+                  <Button variant="outline" onClick={() => handleRemoveEditItem(idx)}>Remove</Button>
+                </div>
+              ))}
+              <Button variant="outline" onClick={handleAddEditItem}>Add Item</Button>
+              <Label>Packing Fee (₹) - leave blank to auto-calc</Label>
+              <Input value={editPackingFeeOverride} onChange={e => setEditPackingFeeOverride(e.target.value)} placeholder="Manual packing fee (optional)" />
             </div>
-          </DialogContent>
-        </Dialog>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
+              <Button onClick={handleSaveEdit}>Save</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogTrigger asChild>
+         
+        </DialogTrigger>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-auto" aria-describedby="add-order-desc">
+          <DialogTitle>Add Order</DialogTitle>
+          <DialogDescription id="add-order-desc">
+            Add order manually
+          </DialogDescription>
+          <div className="mt-4 space-y-4">
+            <Tabs value={mode} onValueChange={setMode}>
+              <TabsList>
+                <TabsTrigger value="manual">Manual Entry</TabsTrigger>
+               
+              </TabsList>
+              <TabsContent value="manual">
+                <div>
+                  <Label>Customer Name</Label>
+                  <Input value={customerName} onChange={e => setCustomerName(e.target.value)} />
+                </div>
+                <div>
+                  <Label>Address</Label>
+                  <Input value={address} onChange={e => setAddress(e.target.value)} />
+                </div>
+                <div>
+                  <Label>City</Label>
+                  <Input value={city} onChange={e => setCity(e.target.value)} />
+                </div>
+                <div>
+                  <Label>State</Label>
+                  <Input value={state} onChange={e => setState(e.target.value)} />
+                </div>
+                <div>
+                  <Label>Pincode</Label>
+                  <Input value={pincode} onChange={e => setPincode(e.target.value)} />
+                </div>
+                <div>
+                  <Label>Phone Number</Label>
+                  <Input value={phone} onChange={e => setPhone(e.target.value)} />
+                </div>
+                <div>
+                  <Label>Courier Partner</Label>
+                  <Input value={newDeliveryPartner} onChange={e => setNewDeliveryPartner(e.target.value)} placeholder="Courier / Delivery Partner" />
+                </div>
+                <div>
+                  <Label>Item</Label>
+                  {items.map((item, index) => (
+                    <div key={index} className="flex space-x-2 items-center mb-2">
+                      <Select
+                        value={item.productId}
+                        onValueChange={value => handleItemChange(index, 'productId', value)}
+                      >
+                        <SelectTrigger className="w-48">
+                          <SelectValue placeholder="Select product" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {products.map(product => (
+                            <SelectItem key={product.id} value={product.id}>
+                              {product.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={item.quantity}
+                        onChange={e => handleItemChange(index, 'quantity', e.target.value)}
+                        className="w-20"
+                      />
+                      <Button variant="outline" onClick={() => handleRemoveItem(index)}>Remove</Button>
+                    </div>
+                  ))}
+                  {items.length === 0 && (
+                    <Button variant="outline" onClick={handleAddItem}>Add Item</Button>
+                  )}
+                </div>
+              </TabsContent>
+              <TabsContent value="upload">
+                <div>
+                  <Label>Shipping Label PDF</Label>
+                  <Input type="file" accept="application/pdf" onChange={handleFileChange} />
+                  {shippingLabelFile && <p>Selected file: {shippingLabelFile.name}</p>}
+                </div>
+              </TabsContent>
+            </Tabs>
+            <div className="mt-4 flex justify-end space-x-2">
+              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+              <Button type="button" onClick={() => { console.log('Submit clicked'); handleSubmit(); }}>Submit</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      </>
       )}
     </div>
   );

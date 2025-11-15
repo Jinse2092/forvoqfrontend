@@ -138,6 +138,7 @@ export const InventoryProvider = ({ children }) => {
   const addDataToBackend = async (type, item, setState) => {
     try {
       console.log(`Sending POST request to backend for type: ${type}`, item);
+      console.log(`POST /api/${type} request body:`, JSON.stringify(item, null, 2));
       const response = await fetch(`https://forwokbackend-1.onrender.com/api/${type}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -150,6 +151,7 @@ export const InventoryProvider = ({ children }) => {
       }
       const savedItem = await response.json();
       console.log(`Successfully saved ${type} to backend:`, savedItem);
+      console.log(`Response from POST /api/${type}:`, JSON.stringify(savedItem, null, 2));
       setState(prev => [savedItem, ...prev]);
       return savedItem;
     } catch (error) {
@@ -391,6 +393,7 @@ export const InventoryProvider = ({ children }) => {
   const addOrder = async (order) => {
     const price = calculateOrderPrice(order.items || []);
     const newOrder = { ...order, id: `ord-${Date.now()}`, merchantId: order.merchantId || currentUser?.id, status: 'pending', date: new Date().toISOString().split('T')[0], price };
+    console.log('addOrder - newOrder object being sent:', JSON.stringify(newOrder, null, 2));
     const savedOrder = await addDataToBackend('orders', newOrder, setOrders);
     if (savedOrder) {
       toast({ title: "Order Added", description: `Order ${savedOrder.id} created and is pending.` });
@@ -511,7 +514,8 @@ export const InventoryProvider = ({ children }) => {
     for (const inv of changedInventory) {
       await updateInventoryItem(inv.id, { quantity: inv.quantity });
     }
-    await updateOrder(orderId, { status: 'dispatched', dispatchDate: new Date().toISOString().split('T')[0] });
+    // Persist status and dispatched timestamp together
+    await updateOrder(orderId, { status: 'dispatched', dispatchDate: new Date().toISOString().split('T')[0], dispatchedAt: new Date().toISOString() });
 
     const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -553,7 +557,8 @@ export const InventoryProvider = ({ children }) => {
        toast({ title: "Permission Denied", description: "Only admins can mark orders as packed.", variant: "destructive" });
        return;
     }
-    await updateOrder(orderId, { status: 'packed' });
+    // Mark as packed and record timestamp
+    await updateOrder(orderId, { status: 'packed', packedAt: new Date().toISOString() });
     toast({ title: "Order Updated", description: `Order ${orderId} marked as packed.` });
   };
 
