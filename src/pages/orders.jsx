@@ -1289,7 +1289,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         <>
       {/* Edit Order Dialog */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-auto" aria-describedby="edit-order-desc">
+        <DialogContent className="w-full max-w-sm sm:max-w-md p-3 sm:p-6 max-h-[80vh] overflow-auto" aria-describedby="edit-order-desc">
           <DialogTitle>Edit Order</DialogTitle>
           <DialogDescription id="edit-order-desc">Edit order details (only allowed when pending)</DialogDescription>
           <div className="space-y-4 mt-4">
@@ -1339,7 +1339,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         <DialogTrigger asChild>
          
         </DialogTrigger>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-auto" aria-describedby="add-order-desc">
+        <DialogContent className="w-full max-w-sm sm:max-w-md p-3 sm:p-6 max-h-[80vh] overflow-auto" aria-describedby="add-order-desc">
           <DialogTitle>Add Order</DialogTitle>
           <DialogDescription id="add-order-desc">
             Add order manually
@@ -1430,7 +1430,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
       </Dialog>
       {/* Mobile Order Details Dialog (opened when Order ID clicked on small screens) */}
       <Dialog open={isOrderDialogOpen} onOpenChange={(v) => { setIsOrderDialogOpen(v); if (!v) setSelectedOrderForModal(null); }}>
-        <DialogContent className="w-full max-w-md p-4" aria-describedby="mobile-order-details-desc">
+        <DialogContent className="w-full max-w-sm sm:max-w-md p-3 sm:p-6 max-h-[80vh] overflow-auto" aria-describedby="mobile-order-details-desc">
           <DialogTitle>Order Details</DialogTitle>
           <DialogDescription id="mobile-order-details-desc">Details for selected order</DialogDescription>
           {selectedOrderForModal ? (
@@ -1519,14 +1519,14 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
           ) : (
             <div className="mt-4">No order selected</div>
           )}
-          <div className="mt-6 flex justify-end gap-2">
+          <div className="mt-6 flex flex-col sm:flex-row sm:justify-end gap-2">
             {selectedOrderForModal && selectedOrderForModal.status === 'pending' && (
               <>
-                <Button variant="outline" onClick={() => { setIsOrderDialogOpen(false); openEditDialog(selectedOrderForModal); setSelectedOrderForModal(null); }}>Edit</Button>
-                <Button variant="destructive" onClick={() => { if (!confirm('Delete this order?')) return; removeOrder(selectedOrderForModal.id); setIsOrderDialogOpen(false); setSelectedOrderForModal(null); }}>Delete</Button>
+                <Button className="w-full sm:w-auto" variant="outline" onClick={() => { setIsOrderDialogOpen(false); openEditDialog(selectedOrderForModal); setSelectedOrderForModal(null); }}>Edit</Button>
+                <Button className="w-full sm:w-auto" variant="destructive" onClick={() => { if (!confirm('Delete this order?')) return; removeOrder(selectedOrderForModal.id); setIsOrderDialogOpen(false); setSelectedOrderForModal(null); }}>Delete</Button>
               </>
             )}
-            <Button variant="outline" onClick={() => { setIsOrderDialogOpen(false); setSelectedOrderForModal(null); }}>Close</Button>
+            <Button className="w-full sm:w-auto" variant="outline" onClick={() => { setIsOrderDialogOpen(false); setSelectedOrderForModal(null); }}>Close</Button>
           </div>
         </DialogContent>
       </Dialog>
