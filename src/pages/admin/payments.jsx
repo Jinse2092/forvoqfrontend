@@ -40,7 +40,7 @@ const AdminPayments = () => {
 
   // Fetch received payments from backend on mount
   useEffect(() => {
-    fetch('https://forwokbackend-1.onrender.com/api/received-payments')
+    fetch('forwokbackend-1.onrender.com/api/received-payments')
       .then(res => res.json())
       .then(data => setReceivedPayments(data))
       .catch(err => console.error('Error fetching received payments:', err));
@@ -82,7 +82,7 @@ const AdminPayments = () => {
       type: 'received_payment'
     };
 
-    fetch('https://forwokbackend-1.onrender.com/api/received-payments', {
+    fetch('forwokbackend-1.onrender.com/api/received-payments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newReceivedPayment),

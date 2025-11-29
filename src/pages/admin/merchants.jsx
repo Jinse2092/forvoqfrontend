@@ -145,6 +145,7 @@ const AdminMerchants = () => {
     }
 
     const tpl = loadSavedTemplate();
+    console.log('openMerchantPopup: initial tpl length=', (tpl || '').length, 'for key=', key);
 
     const w = window.open('', '_blank', 'width=900,height=700');
     if (!w) { alert('Popup blocked. Allow popups for this site.'); return; }
@@ -175,7 +176,16 @@ const AdminMerchants = () => {
     textarea.style.height = '360px';
     textarea.style.fontFamily = 'monospace';
     textarea.style.fontSize = '13px';
-  textarea.value = tpl || '';
+    textarea.value = tpl || '';
+    if (!textarea.value || textarea.value.trim() === '') {
+      const hint = doc.createElement('p');
+      hint.textContent = 'No template found for this merchant — use Save Template to create or load from localStorage.';
+      hint.style.color = '#666';
+      hint.style.fontStyle = 'italic';
+      hint.id = 'no-template-hint';
+      root.appendChild(hint);
+    }
+  console.log('openMerchantPopup: textarea initial length=', textarea.value.length, 'localStorage key present=', localStorage.getItem(key) ? true : false);
     root.appendChild(textarea);
 
     const controls = doc.createElement('div');
@@ -191,9 +201,13 @@ const AdminMerchants = () => {
     (async function tryLoadFromServer() {
       try {
         const res = await fetch(`https://forwokbackend-1.onrender.com/api/merchants/${merchant.id}/shipping-template`);
-        if (res.ok) {
+          if (res.ok) {
           const body = await res.json();
+          console.log('MERCHANT TEMPLATE LOAD: res.ok=', res.ok, 'body=', body);
           if (body && body.template) textarea.value = body.template;
+            // remove hint if present
+            const existingHint = doc.getElementById('no-template-hint');
+            if (existingHint) { existingHint.remove(); }
         }
       } catch (e) {
         // ignore and keep local value
@@ -217,13 +231,14 @@ const AdminMerchants = () => {
       setTimeout(() => { try { pw.focus(); pw.print(); } catch (e) { console.error(e); } }, 600);
     };
 
-    saveBtn.onclick = async () => {
+      saveBtn.onclick = async () => {
       const v = textarea.value || '';
       // try saving to backend (MongoDB)
       try {
         const res = await fetch(`https://forwokbackend-1.onrender.com/api/merchants/${merchant.id}/shipping-template`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ template: v })
         });
+        console.log('save template response status =', res.status);
         if (res.ok) {
           alert('Template saved to server');
           return;

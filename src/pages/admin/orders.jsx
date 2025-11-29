@@ -3,6 +3,7 @@ import { useInventory } from '../../context/inventory-context.jsx';
 import { Button } from '../../components/ui/button.jsx';
 import { useToast } from '../../components/ui/use-toast.js';
 import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription } from '../../components/ui/dialog.jsx';
 import { Input } from '../../components/ui/input.jsx';
 import { Label } from '../../components/ui/label.jsx';
@@ -14,61 +15,66 @@ import { generateShippingLabelPDF } from '../../lib/pdfGenerator.js';
 import { calculateVolumetricWeight, calculateDispatchFee } from '../../lib/utils.js';
 import { StatusTimelineDropdown } from '../../components/StatusTimelineDropdown.jsx';
 
-const AdminOrders = () => {
-  const { orders, markOrderPacked, dispatchOrder, products, updateOrder, addOrder, removeOrder, inventory, currentUser, users } = useInventory();
-  const { toast } = useToast();
+// Ensure renderTemplate is defined at the top level of the file
+const renderTemplate = (tpl, data = {}) => {
+  const src = String(tpl || '').trim();
 
-  // Helper: render basic template with support for {{ }} and {% for %} loops
-  const renderTemplate = (tpl, data = {}) => {
-    const src = String(tpl || '');
-
-    const resolvePath = (path, ctx = data) => {
-      if (!path) return undefined;
-      const parts = path.trim().split('.');
-      let cur = ctx;
-      for (const p of parts) {
-        if (cur == null) return undefined;
-        cur = cur[p];
+  const resolvePath = (path, ctx = data) => {
+    if (!path) return undefined;
+    const parts = path.trim().split('.');
+    let cur = ctx;
+    for (const p of parts) {
+      if (cur == null) {
+        console.warn(`Missing path: ${path} at part: ${p}`);
+        return undefined;
       }
-      return cur;
-    };
-
-    // process for-loops: {% for item in items %}...{% endfor %}
-    const forRegex = /{%\s*for\s+(\w+)\s+in\s+([\w.]+)\s*%}([\s\S]*?){%\s*endfor\s*%}/g;
-    let out = src;
-    let prev;
-    do {
-      prev = out;
-      out = out.replace(forRegex, (m, itemVar, listPath, inner) => {
-        const list = resolvePath(listPath) || [];
-        if (!Array.isArray(list)) return '';
-        return list.map(it => {
-          // replace {{ item.prop }} inside inner
-          return inner.replace(/{{\s*([^}]+)\s*}}/g, (_, token) => {
-            const t = token.trim();
-            if (t.startsWith(itemVar + '.')) {
-              const prop = t.slice(itemVar.length + 1);
-              return (it && it[prop] != null) ? String(it[prop]) : '';
-            }
-            const val = resolvePath(t, { [itemVar]: it, ...data });
-            return val == null ? '' : String(val);
-          });
-        }).join('\n');
-      });
-    } while (out !== prev);
-
-    // final variable replacement
-    out = out.replace(/{{\s*([^}]+)\s*}}/g, (_, expr) => {
-      try {
-        const key = expr.trim();
-        const val = resolvePath(key);
-        if (val === undefined || val === null) return '';
-        return String(val);
-      } catch (e) { return ''; }
-    });
-
-    return out;
+      cur = cur[p];
+    }
+    return cur;
   };
+
+  // Add debugging logs
+  console.log("Template source:", src);
+  console.log("Data context:", data);
+
+  // Replace {{ }} placeholders
+  let out = src.replace(/{{\s*([^}]+)\s*}}/g, (_, expr) => {
+    try {
+      const key = expr.trim();
+      const val = resolvePath(key);
+      if (val == null) {
+        console.warn(`Missing value for: ${key}`);
+        return '';
+      }
+      return String(val).trim();
+    } catch (e) {
+      console.error(`Error resolving path: ${expr}`, e);
+      return '';
+    }
+  });
+
+  // Process {% if %} and {% else %} blocks
+  const ifRegex = /{%\s*if\s+([^%]+)\s*%}([\s\S]*?){%\s*else\s*%}([\s\S]*?){%\s*endif\s*%}/g;
+  out = out.replace(ifRegex, (match, condition, ifTrue, ifFalse) => {
+    const value = resolvePath(condition.trim());
+    console.log(`Condition: ${condition.trim()}, Value: ${value}`);
+    return value ? ifTrue.trim() : ifFalse.trim();
+  });
+
+  // Process {% if %} blocks without {% else %}
+  const ifOnlyRegex = /{%\s*if\s+([^%]+)\s*%}([\s\S]*?){%\s*endif\s*%}/g;
+  out = out.replace(ifOnlyRegex, (match, condition, ifTrue) => {
+    const value = resolvePath(condition.trim());
+    console.log(`Condition: ${condition.trim()}, Value: ${value}`);
+    return value ? ifTrue.trim() : '';
+  });
+
+  return out.trim();
+};
+
+const AdminOrders = () => {
+  const { orders, markOrderPacked, dispatchOrder, products, updateOrder, addOrder, removeOrder, inventory, currentUser, users, replaceOrder } = useInventory();
+  const { toast } = useToast();
 
   const openPreviewWindow = (renderedHtml, autoPrint = false) => {
     const w = window.open('', '_blank');
@@ -125,6 +131,17 @@ const AdminOrders = () => {
   const [isWeightDialogOpen, setIsWeightDialogOpen] = useState(false);
   const [ordersForWeightUpdate, setOrdersForWeightUpdate] = useState([]);
   const [weights, setWeights] = useState({});
+
+  // Dialog state for tracking codes
+  const [isTrackingCodeDialogOpen, setIsTrackingCodeDialogOpen] = useState(false);
+
+  // New states for tracking codes and order details
+  const [trackingCodes, setTrackingCodes] = useState({});
+  const [isOrderDetailsDialogOpen, setIsOrderDetailsDialogOpen] = useState(false);
+  const [orderDetails, setOrderDetails] = useState(null);
+
+  // Add state for newTrackingCode
+  const [newTrackingCode, setNewTrackingCode] = useState('');
 
   // Filters
   const [statusFilter, setStatusFilter] = useState('all'); // all, pending, packed, dispatched, delivered, return
@@ -221,80 +238,69 @@ const AdminOrders = () => {
     dispatchOrder(orderId);
   };
 
+  // Open weight dialog for a single order (from order details)
+  const openWeightDialogForOrder = (order) => {
+    if (!order) return;
+    setOrdersForWeightUpdate([order]);
+    setWeights({ [order.id]: order.packedweight ?? order.totalWeightKg ?? '' });
+    setIsWeightDialogOpen(true);
+    setIsTrackingCodeDialogOpen(false);
+  };
+
   const downloadShippingLabel = async (order) => {
-    if (order.shippingLabelFile) {
-      const url = URL.createObjectURL(order.shippingLabelFile);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = order.shippingLabelFile.name || 'shipping-label';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } else if (order.shippingLabelBase64) {
-      // Convert base64 to Blob and download
-      const base64Data = order.shippingLabelBase64.split(',')[1];
-      const contentType = order.shippingLabelBase64.split(',')[0].split(':')[1].split(';')[0];
-      const byteCharacters = atob(base64Data);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
+    // Check if merchant has a saved HTML template in server (MongoDB)
+    const merchant = users.find(u => u.id === order.merchantId) || { companyName: '', id: '' };
+    const templateKey = `shipping_label_template_${merchant.id}`;
+    let tpl = null;
+    try {
+          const res = await fetch(`https://forwokbackend-1.onrender.com/api/merchants/${merchant.id}/shipping-template`);
+      if (res.ok) {
+        const body = await res.json();
+        tpl = body && body.template ? body.template : null;
       }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: contentType });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'shipping-label.pdf';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } else {
-      // Check if merchant has a saved HTML template in server (MongoDB)
-      const merchant = users.find(u => u.id === order.merchantId) || { companyName: '', id: '' };
-      const templateKey = `shipping_label_template_${merchant.id}`;
-      let tpl = null;
-      try {
-        const res = await fetch(`https://forwokbackend-1.onrender.com/api/merchants/${merchant.id}/shipping-template`);
-        if (res.ok) {
-          const body = await res.json();
-          tpl = body && body.template ? body.template : null;
-        }
-      } catch (e) {
-        // ignore and fall back to localStorage
-        console.warn('Failed to fetch server template', e);
-      }
-
-      // fallback: check localStorage
-      if (!tpl) {
-        try { tpl = localStorage.getItem(templateKey); } catch (e) { tpl = null; }
-      }
-
-      if (tpl) {
-        // Prepare data for template
-        const addressParts = (order.address || '').split(',').map(p => p.trim());
-        const data = {
-          shop: { name: merchant.companyName || merchant.name || 'Merchant' },
-          order: { name: order.id, created_at: order.createdAt || order.date || '' },
-          shipping_address: { name: order.customerName || '', address1: addressParts[0] || '', address2: (addressParts.slice(1).join(', ') || ''), city_province_zip: `${order.city || ''}, ${order.state || ''} ${order.pincode || ''}`, country: 'India', phone: order.phone || '' },
-          items: (order.items || []).map(i => ({ title: i.name || i.title || 'Item', quantity: i.quantity || 0 })),
-          deliveryPartner: order.deliveryPartner || ''
-        };
-        const rendered = renderTemplate(tpl, data);
-        openPreviewWindow(rendered, false);
-        return;
-      }
-
-      // Fallback: use PDF generator for the order
-      const augmentedOrder = {
-        ...order,
-        city: order.city || '',
-        state: order.state || '',
-      };
-      console.log('No merchant template found — generating default PDF for order:', augmentedOrder);
-      generateShippingLabelPDF(augmentedOrder, { companyName: merchant.companyName, id: merchant.id });
+    } catch (e) {
+      // ignore and fall back to localStorage
+      console.warn('Failed to fetch server template', e);
     }
+
+    // fallback: check localStorage
+    if (!tpl) {
+      try { tpl = localStorage.getItem(templateKey); } catch (e) { tpl = null; }
+    }
+
+    if (tpl) {
+      // Prepare data for template
+      const addressParts = (order.address || '').split(',').map(p => p.trim());
+      const data = {
+        shop: { name: merchant.companyName || merchant.name || 'Merchant' },
+        order: { name: order.id, created_at: order.createdAt || order.date || '' },
+        shipping_address: { 
+          name: order.customerName || '', 
+          address1: addressParts[0] || '', 
+          address2: (addressParts.slice(1).join(', ') || ''), 
+          city: order.city || '', 
+          province: order.state || '', 
+          zip: order.pincode || '', 
+          country: 'India', 
+          phone: order.phone || '' 
+        },
+        items: (order.items || []).map(i => ({ title: i.name || i.title || 'Item', quantity: i.quantity || 0 })),
+        deliveryPartner: order.deliveryPartner || ''
+      };
+      const rendered = renderTemplate(tpl, data);
+      // Open in new window and trigger print
+      openPreviewWindow(rendered, true);
+      return;
+    }
+
+    // Fallback: use PDF generator for the order - will trigger print in its own window
+    const augmentedOrder = {
+      ...order,
+      city: order.city || '',
+      state: order.state || '',
+    };
+    console.log('No merchant template found — generating default PDF for order:', augmentedOrder);
+    generateShippingLabelPDF(augmentedOrder, { companyName: merchant.companyName, id: merchant.id });
   };
 
 const openMarkItemsDialog = (order) => {
@@ -572,77 +578,156 @@ const openMarkItemsDialog = (order) => {
     }
   };
 
-  const groupDownloadLabels = () => {
+  const groupDownloadLabels = async () => {
     if (selectedOrderIds.length === 0) return;
     const toDownload = filteredOrders.filter(o => selectedOrderIds.includes(o.id));
-    toDownload.forEach(order => downloadShippingLabel(order));
-    toast({ title: 'Download started', description: `Downloading ${toDownload.length} labels (if available).` });
+    
+    // Create a single PDF with multiple pages
+    const pdf = new jsPDF();
+    let firstPage = true;
+
+    for (const order of toDownload) {
+      // Get merchant template
+      const merchant = users.find(u => u.id === order.merchantId) || { companyName: '', id: '' };
+      const templateKey = `shipping_label_template_${merchant.id}`;
+      let tpl = null;
+      
+      try {
+          const res = await fetch(`https://forwokbackend-1.onrender.com/api/merchants/${merchant.id}/shipping-template`);
+        if (res.ok) {
+          const body = await res.json();
+          tpl = body && body.template ? body.template : null;
+        }
+      } catch (e) {
+        console.warn('Failed to fetch server template', e);
+      }
+
+      if (!tpl) {
+        try { tpl = localStorage.getItem(templateKey); } catch (e) { tpl = null; }
+      }
+
+      // Create a temporary div to render the template
+      const tempDiv = document.createElement('div');
+      tempDiv.style.position = 'absolute';
+      tempDiv.style.left = '-9999px';
+      tempDiv.style.width = '210mm';
+      tempDiv.style.height = '297mm';
+      tempDiv.style.padding = '20px';
+      tempDiv.style.boxSizing = 'border-box';
+      tempDiv.style.backgroundColor = 'white';
+      tempDiv.style.fontFamily = 'Arial, sans-serif';
+
+      if (tpl) {
+        // Render merchant template
+        const addressParts = (order.address || '').split(',').map(p => p.trim());
+        const data = {
+          shop: { name: merchant.companyName || merchant.name || 'Merchant' },
+          order: { name: order.id, created_at: order.createdAt || order.date || '' },
+          shipping_address: { 
+            name: order.customerName || '', 
+            address1: addressParts[0] || '', 
+            address2: (addressParts.slice(1).join(', ') || ''), 
+            city: order.city || '', 
+            province: order.state || '', 
+            zip: order.pincode || '', 
+            country: 'India', 
+            phone: order.phone || '' 
+          },
+          items: (order.items || []).map(i => ({ title: i.name || i.title || 'Item', quantity: i.quantity || 0 })),
+          deliveryPartner: order.deliveryPartner || ''
+        };
+        const rendered = renderTemplate(tpl, data);
+        tempDiv.innerHTML = rendered;
+      } else {
+        // Fallback: create simple HTML template
+        const addressParts = (order.address || '').split(',').map(p => p.trim());
+        tempDiv.innerHTML = `
+          <div style="padding: 20px; font-family: Arial, sans-serif;">
+            <h2>${merchant.companyName || 'Shipping Label'}</h2>
+            <hr style="margin: 10px 0;">
+            <p><strong>Order ID:</strong> ${order.id}</p>
+            <p><strong>Date:</strong> ${order.date || order.createdAt || 'N/A'}</p>
+            <p><strong>Customer:</strong> ${order.customerName || 'N/A'}</p>
+            <p><strong>Phone:</strong> ${order.phone || 'N/A'}</p>
+            <hr style="margin: 10px 0;">
+            <p><strong>Shipping Address:</strong></p>
+            <p>${addressParts.join(', ')}</p>
+            <p>${order.city || ''}, ${order.state || ''} ${order.pincode || ''}</p>
+            <p><strong>Courier Partner:</strong> ${order.deliveryPartner || 'TBD'}</p>
+            <hr style="margin: 10px 0;">
+            <p><strong>Items:</strong></p>
+            <ul>
+              ${(order.items || []).map(i => `<li>${i.name || i.title || 'Item'} (Qty: ${i.quantity || 0})</li>`).join('')}
+            </ul>
+          </div>
+        `;
+      }
+
+      document.body.appendChild(tempDiv);
+
+      try {
+        // Convert HTML to canvas
+        const canvas = await html2canvas(tempDiv, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff'
+        });
+
+        // Add page to PDF
+        if (!firstPage) {
+          pdf.addPage();
+        }
+
+        const imgData = canvas.toDataURL('image/png');
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        
+        pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
+        firstPage = false;
+      } catch (err) {
+        console.error('Error generating page for order:', order.id, err);
+      } finally {
+        document.body.removeChild(tempDiv);
+      }
+    }
+
+    // Download the PDF
+    pdf.save('shipping-labels.pdf');
+    toast({ title: 'Success', description: `Generated PDF with ${toDownload.length} shipping label(s).` });
+    setSelectedOrderIds([]);
   };
 
   const groupMarkPacked = async () => {
     if (selectedOrderIds.length === 0) return;
-    // Get the full order objects for the dialog
+
     const ordersToUpdate = selectedOrderIds
-      .map(id => filteredOrders.find(o => o.id === id))
+      .map((id) => filteredOrders.find((o) => o.id === id))
       .filter(Boolean);
+
     const initialWeights = {};
-    ordersToUpdate.forEach(order => {
-      initialWeights[order.id] = order.totalWeightKg || '';
+    ordersToUpdate.forEach((order) => {
+      initialWeights[order.id] = order.packedweight ?? order.totalWeightKg ?? '';
     });
+
     setOrdersForWeightUpdate(ordersToUpdate);
     setWeights(initialWeights);
-    setIsWeightDialogOpen(true);
-  };
+    setIsWeightDialogOpen(true); // Open the weight dialog
 
-  const handleWeightSave = async () => {
-    try {
-      const updates = ordersForWeightUpdate.map(order => ({
-        orderId: order.id,
-        totalWeightKg: parseFloat(weights[order.id]) || order.totalWeightKg || 0
-      }));
-
-      await Promise.all(updates.map(update =>
-        updateOrder(update.orderId, {
-          status: 'packed',
-          packedAt: new Date().toISOString(),
-          totalWeightKg: update.totalWeightKg
-        })
-      ));
-
-      toast({ title: 'Success', description: `${updates.length} orders marked as packed with updated weights.` });
-      setSelectedOrderIds([]);
-      setIsWeightDialogOpen(false);
-      setOrdersForWeightUpdate([]);
-      setWeights({});
-    } catch (err) {
-      console.error('Error updating weights:', err);
-      toast({ title: 'Error', description: 'Failed to update orders.', variant: 'destructive' });
-    }
+    // Explicitly ensure tracking code dialog is not opened
+    setIsTrackingCodeDialogOpen(false);
   };
 
   const groupDispatch = async () => {
     if (selectedOrderIds.length === 0) return;
-    try {
-      for (const id of selectedOrderIds) {
-        // dispatchOrder handles inventory updates
-        // await sequentially to avoid race conditions
-        // eslint-disable-next-line no-await-in-loop
-        await dispatchOrder(id);
-      }
-      toast({ title: 'Dispatched', description: 'Selected orders dispatched.' });
-      setSelectedOrderIds([]);
-    } catch (err) {
-      console.error('Group dispatch error', err);
-      toast({ title: 'Error', description: 'Failed to dispatch some orders.', variant: 'destructive' });
-    }
+    setIsTrackingCodeDialogOpen(true); // Open the tracking code dialog
   };
 
   const groupMarkDelivered = async () => {
     if (selectedOrderIds.length === 0) return;
     if (!window.confirm(`Mark ${selectedOrderIds.length} selected orders as delivered?`)) return;
     try {
-  const deliveredAt = new Date().toISOString();
-  await Promise.all(selectedOrderIds.map(id => updateOrder(id, { status: 'delivered', deliveredAt })));
+      const deliveredAt = new Date().toISOString();
+      await Promise.all(selectedOrderIds.map((id) => updateOrder(id, { status: 'delivered', deliveredAt })));
       toast({ title: 'Updated', description: 'Selected orders marked as delivered.' });
       setSelectedOrderIds([]);
     } catch (err) {
@@ -663,61 +748,572 @@ const openMarkItemsDialog = (order) => {
     }
   };
 
+  // Function to handle dispatch with tracking codes
+  const handleDispatchWithTracking = async (targetStatus) => {
+    if (selectedOrderIds.length === 0) return;
+
+    try {
+      for (const id of selectedOrderIds) {
+        const order = orders.find((o) => o.id === id);
+
+        if (!order) {
+          toast({ title: 'Error', description: `Order ${id} not found.`, variant: 'destructive' });
+          return;
+        }
+
+        // Determine the tracking code to persist (entered value takes precedence)
+        const codeToSave = (trackingCodes && trackingCodes[id]) ? trackingCodes[id] : order.trackingCode;
+
+        // If we're dispatching, tracking code must exist (either previously saved or entered now)
+        if (targetStatus === 'Dispatched' && (!codeToSave || codeToSave === '')) {
+          toast({ title: 'Error', description: `Tracking code is required for order ${id}.`, variant: 'destructive' });
+          setIsTrackingCodeDialogOpen(true); // Open the tracking code dialog
+          return;
+        }
+
+        // Persist tracking code if we have one (this updates server and local state)
+        if (codeToSave) {
+          await saveTrackingCodeAndRefresh(id, codeToSave);
+        }
+
+        // Update order status and include trackingCode to ensure backend persists it with the dispatch
+        await dispatchOrder(id, { status: targetStatus, trackingCode: codeToSave });
+      }
+
+      toast({ title: 'Success', description: `Selected orders updated to ${targetStatus} successfully.` });
+      setSelectedOrderIds([]);
+      setTrackingCodes({});
+      setIsTrackingCodeDialogOpen(false); // Close the tracking code dialog
+    } catch (err) {
+      console.error('Dispatch error', err);
+      toast({ title: 'Error', description: `Failed to update some orders to ${targetStatus}.`, variant: 'destructive' });
+    }
+  };
+
+  // Handle confirming mark packed from weight dialog
+  const handleConfirmMarkPacked = async () => {
+    if (!ordersForWeightUpdate || ordersForWeightUpdate.length === 0) {
+      setIsWeightDialogOpen(false);
+      return;
+    }
+    try {
+      const now = new Date().toISOString();
+      const results = await Promise.all(ordersForWeightUpdate.map(async (order) => {
+        const w = parseFloat(weights[order.id]) || 0;
+        // If order has exactly one item, update its item-level weight field as well
+        // Save packed weight explicitly as `packedweight` along with totalWeightKg
+        let updatedFields = { totalWeightKg: w, packedweight: w, status: 'packed', packedAt: now };
+        if (order.items && order.items.length === 1) {
+          const item = order.items[0];
+          const updatedItem = { ...item, weightKg: w };
+          updatedFields.items = [updatedItem];
+        }
+        console.log('MarkPacked: updating order', order.id, 'with', updatedFields);
+        const res = await updateOrder(order.id, updatedFields);
+        console.log('MarkPacked: server response for', order.id, res);
+        return res;
+      }));
+      console.log('MarkPacked: all results', results);
+      // If order details dialog is open for one of the updated orders, refresh it with the saved data
+      if (orderDetails && results && results.length > 0) {
+        const updated = results.find(r => r && r.id === orderDetails.id);
+        if (updated) setOrderDetails(updated);
+      }
+      toast({ title: 'Updated', description: `Marked ${ordersForWeightUpdate.length} order(s) as packed.` });
+      setSelectedOrderIds([]);
+      setOrdersForWeightUpdate([]);
+      setWeights({});
+      setIsWeightDialogOpen(false);
+      // Ensure tracking dialog remains closed
+      setIsTrackingCodeDialogOpen(false);
+    } catch (err) {
+      console.error('Mark packed error', err);
+      toast({ title: 'Error', description: 'Failed to mark some orders as packed.', variant: 'destructive' });
+    }
+  };
+
+  // Function to open order details dialog
+  const openOrderDetails = (order) => {
+    setOrderDetails(order);
+    setIsOrderDetailsDialogOpen(true);
+  };
+
+  // Helpers for formatting in Order Details dialog
+  const formatDateTime = (val) => {
+    if (!val) return 'N/A';
+    const d = parseDateSafe(val) || parseDateSafe((val + '').replace(' ', 'T'));
+    if (!d) return 'N/A';
+    const z = (n) => (n < 10 ? '0' + n : n);
+    const day = z(d.getDate());
+    const month = z(d.getMonth() + 1);
+    const year = d.getFullYear();
+    const hours = z(d.getHours());
+    const minutes = z(d.getMinutes());
+    const seconds = z(d.getSeconds());
+    return `${day}/${month}/${year}, ${hours}:${minutes}:${seconds}`;
+  };
+
+  const computeWeight = (o) => {
+    if (!o) return null;
+    if (o.packedweight !== undefined && o.packedweight !== null && o.packedweight !== '') {
+      const parsed = parseFloat(o.packedweight);
+      return (isFinite(parsed) && !isNaN(parsed)) ? parsed : 0;
+    }
+    if (o.totalWeightKg !== undefined && o.totalWeightKg !== null && o.totalWeightKg !== '') {
+      const parsed = parseFloat(o.totalWeightKg);
+      return (isFinite(parsed) && !isNaN(parsed)) ? parsed : 0;
+    }
+    let perItemsSum = 0;
+    let foundAny = false;
+    (o.items || []).forEach(it => {
+      if (it && (it.weightKg !== undefined && it.weightKg !== null && it.weightKg !== '')) {
+        const v = parseFloat(it.weightKg);
+        if (isFinite(v) && !isNaN(v)) {
+          perItemsSum += v * (it.quantity || 1);
+          foundAny = true;
+        }
+      } else {
+        const prod = products.find(p => p.id === it.productId) || {};
+        const actual = prod.weightKg || 0;
+        const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+        const perItem = Math.max(actual, vol);
+        perItemsSum += perItem * (it.quantity || 1);
+      }
+    });
+    return (foundAny || perItemsSum > 0) ? perItemsSum : null;
+  };
+
+  const computePackingFee = (o) => {
+    if (!o) return 'N/A';
+    const fee = (o.items || []).reduce((sum, item) => {
+      const prod = products.find(p => p.id === item.productId);
+      if (!prod) return sum;
+      const actual = prod.weightKg || 0;
+      const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+      const f = calculateDispatchFee ? calculateDispatchFee(actual, vol, prod.packingType || 'normal packing') : 0;
+      return sum + f * (item.quantity || 0);
+    }, 0);
+    return isFinite(fee) ? `₹${fee.toFixed(2)}` : 'N/A';
+  };
+
+  // Fetch a fresh order document directly from the backend (reads DB)
+  const fetchOrderFromServer = async (orderId) => {
+    try {
+      const res = await fetch(`https://forwokbackend-1.onrender.com/api/orders-debug/${orderId}`);
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Failed to fetch order ${orderId}: ${res.status} ${res.statusText} ${txt}`);
+      }
+      const body = await res.json();
+      return body && body.order ? body.order : null;
+    } catch (err) {
+      console.error('fetchOrderFromServer error', err);
+      return null;
+    }
+  };
+
+  // Function to save the tracking code to the database
+  const saveTrackingCode = async (orderId, trackingCode) => {
+    try {
+      const response = await fetch(`https://forwokbackend-1.onrender.com/api/orders/${orderId}/tracking-code`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ trackingCode }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save tracking code');
+      }
+
+      toast({ title: 'Success', description: 'Tracking code saved successfully.' });
+    } catch (error) {
+      console.error('Error saving tracking code:', error);
+      toast({ title: 'Error', description: 'Failed to save tracking code.', variant: 'destructive' });
+    }
+  };
+
+  // Simple, self-contained saver: PATCH tracking code directly for selected orders
+  // This function does not integrate with updateOrder/dispatchOrder and only saves trackingCode field
+  const saveTrackingCodesDirect = async () => {
+    console.log('saveTrackingCodesDirect called', { selectedOrderIds, trackingCodes });
+    if (!selectedOrderIds || selectedOrderIds.length === 0) {
+      toast({ title: 'No Orders', description: 'No orders selected to save tracking codes for.', variant: 'destructive' });
+      return;
+    }
+    try {
+      let anySent = false;
+      for (const id of selectedOrderIds) {
+        const code = trackingCodes && trackingCodes[id] ? String(trackingCodes[id]).trim() : '';
+        if (!code) {
+          console.log(`Skipping order ${id} because no tracking code entered.`);
+          continue; // skip empty entries to avoid server 400
+        }
+        anySent = true;
+        console.log(`Saving tracking code for ${id}:`, code);
+        const res = await fetch(`https://forwokbackend-1.onrender.com/api/orders/${id}/tracking-code`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trackingCode: code }),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          console.error(`Failed to save tracking code for ${id}:`, res.status, res.statusText, text);
+          toast({ title: 'Error', description: `Failed to save tracking for ${id}.`, variant: 'destructive' });
+          continue;
+        }
+        // Optionally read response
+        const body = await res.json().catch(() => null);
+        console.log(`Saved tracking code for ${id}`, body);
+        // Fetch the fresh order document directly from the DB via debug endpoint
+        try {
+          const fresh = await fetchOrderFromServer(id);
+          if (fresh && typeof replaceOrder === 'function') replaceOrder(fresh);
+          if (orderDetails && orderDetails.id === id) setOrderDetails(fresh || orderDetails);
+        } catch (e) {
+          console.warn('Failed to fetch fresh order from server after saving tracking code', e);
+          // Fallback to using server-returned body.order if present
+          try {
+            if (body && body.order && typeof replaceOrder === 'function') replaceOrder(body.order);
+            if (orderDetails && orderDetails.id === id) setOrderDetails(body && body.order ? body.order : orderDetails);
+          } catch (ee) {
+            console.warn('Fallback replace failed', ee);
+          }
+        }
+        toast({ title: 'Saved', description: `Tracking code saved for ${id}.` });
+      }
+      if (!anySent) {
+        toast({ title: 'No Codes', description: 'No tracking codes entered. Nothing saved.', variant: 'warning' });
+        return;
+      }
+      // Close dialog and clear entered codes (keeps UI simple)
+      setIsTrackingCodeDialogOpen(false);
+      setTrackingCodes({});
+      setSelectedOrderIds([]);
+    } catch (err) {
+      console.error('Error saving tracking codes directly:', err);
+      toast({ title: 'Error', description: 'Failed to save some tracking codes.', variant: 'destructive' });
+    }
+  };
+  // Save entered tracking codes and mark selected orders as dispatched with timestamp
+  const saveTrackingCodesAndDispatch = async () => {
+    console.log('saveTrackingCodesAndDispatch called', { selectedOrderIds, trackingCodes });
+    if (!selectedOrderIds || selectedOrderIds.length === 0) {
+      toast({ title: 'No Orders', description: 'No orders selected to dispatch.', variant: 'destructive' });
+      return;
+    }
+    try {
+      let anySent = false;
+      const dispatchedAt = new Date().toISOString();
+      for (const id of selectedOrderIds) {
+        const code = trackingCodes && trackingCodes[id] ? String(trackingCodes[id]).trim() : '';
+        const order = orders.find(o => o.id === id) || {};
+        const finalCode = code || order.trackingCode || '';
+        if (!finalCode) {
+          toast({ title: 'Error', description: `Tracking code required for order ${id}.`, variant: 'destructive' });
+          setIsTrackingCodeDialogOpen(true);
+          return;
+        }
+        anySent = true;
+        if (typeof updateOrder === 'function') {
+          try {
+            const saved = await updateOrder(id, { trackingCode: finalCode, status: 'dispatched', dispatchedAt });
+            console.log('Dispatched order saved via updateOrder', id, saved);
+            if (saved && typeof replaceOrder === 'function') replaceOrder(saved);
+            if (orderDetails && orderDetails.id === id && saved) setOrderDetails(saved);
+          } catch (err) {
+            console.error('Failed updateOrder for dispatch', id, err);
+            await fetch(`https://forwokbackend-1.onrender.com/api/orders/${id}/tracking-code`, {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ trackingCode: finalCode }),
+            });
+            await fetch(`https://forwokbackend-1.onrender.com/api/orders/${id}`, {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'dispatched', dispatchedAt }),
+            });
+          }
+        } else {
+          await fetch(`https://forwokbackend-1.onrender.com/api/orders/${id}/tracking-code`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ trackingCode: finalCode }),
+          });
+          await fetch(`https://forwokbackend-1.onrender.com/api/orders/${id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'dispatched', dispatchedAt }),
+          });
+        }
+      }
+      if (!anySent) {
+        toast({ title: 'No Codes', description: 'No tracking codes entered. Nothing dispatched.', variant: 'warning' });
+        return;
+      }
+      toast({ title: 'Dispatched', description: `Marked ${selectedOrderIds.length} order(s) as dispatched.` });
+      setSelectedOrderIds([]);
+      setTrackingCodes({});
+      setIsTrackingCodeDialogOpen(false);
+    } catch (err) {
+      console.error('Error saving tracking codes and dispatching:', err);
+      toast({ title: 'Error', description: 'Failed to dispatch some orders.', variant: 'destructive' });
+    }
+  };
+
+  // Improved: save tracking code via PATCH, then refresh order locally via PUT to ensure UI updates
+  const saveTrackingCodeAndRefresh = async (orderId, trackingCode) => {
+    // Simpler: use the existing updateOrder (PUT) which updates trackingCode and returns saved order
+    try {
+      if (typeof updateOrder === 'function') {
+        const saved = await updateOrder(orderId, { trackingCode });
+        // updateOrder already refreshes local state and calls fetchAllData, so also refresh orderDetails if needed
+        try {
+          if (orderDetails && orderDetails.id === orderId && saved) setOrderDetails(saved);
+        } catch (e) {
+          console.warn('Failed to refresh orderDetails after updateOrder:', e);
+        }
+        return saved;
+      }
+
+      // Fallback: PATCH endpoint if updateOrder is not available (save tracking code only)
+      const response = await fetch(`https://forwokbackend-1.onrender.com/api/orders/${orderId}/tracking-code`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackingCode }),
+      });
+      if (!response.ok) throw new Error('Failed to save tracking code via PATCH');
+      const body = await response.json();
+      if (body && body.order && typeof replaceOrder === 'function') {
+        replaceOrder(body.order);
+        if (orderDetails && orderDetails.id === orderId) setOrderDetails(body.order);
+        return body.order;
+      }
+      toast({ title: 'Success', description: 'Tracking code saved and UI refreshed.' });
+      return null;
+    } catch (err) {
+      console.error('Error saving tracking code and refreshing:', err);
+      toast({ title: 'Error', description: 'Failed to save tracking code.', variant: 'destructive' });
+      return null;
+    }
+  };
+
+  // Function to handle saving a new order
+  const handleSaveNewOrder = async () => {
+    try {
+      console.log('Save button clicked'); // Log button click
+
+      // Validate required fields
+      if (!selectedMerchantId || !newCustomerName || !newAddress || !newCity || !newState || !newPincode || !newPhone || !newDeliveryPartner || newItems.length === 0) {
+        toast({ title: 'Error', description: 'Please fill in all required fields.', variant: 'destructive' });
+        console.error('Validation failed: Missing required fields'); // Log validation failure
+        return;
+      }
+
+      // Generate a unique ID for the new order
+      const uniqueId = `ord-${Date.now()}`;
+
+      // Prepare order data
+      const newOrder = {
+        id: uniqueId, // Include the generated ID
+        merchantId: selectedMerchantId,
+        customerName: newCustomerName,
+        address: newAddress,
+        city: newCity,
+        state: newState,
+        pincode: newPincode,
+        phone: newPhone,
+        deliveryPartner: newDeliveryPartner,
+        items: newItems,
+      };
+
+      console.log('Prepared order data:', newOrder); // Log the prepared order data
+
+      // Call backend API to save the order
+      const response = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newOrder),
+      });
+
+      console.log('API call made to /api/orders'); // Log API call
+      console.log('API response status:', response.status); // Log the response status
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('API error:', errorData); // Log the error response
+        toast({ title: 'Error', description: `Failed to save the order: ${errorData.error || 'Unknown error'}`, variant: 'destructive' });
+        return;
+      }
+
+      const responseData = await response.json();
+      console.log('API response data:', responseData); // Log the response data
+
+      toast({ title: 'Success', description: 'Order added successfully.' });
+      setIsAddOrderOpen(false); // Close the dialog
+
+      // Reset form fields
+      setSelectedMerchantId(null);
+      setNewCustomerName('');
+      setNewAddress('');
+      setNewCity('');
+      setNewState('');
+      setNewPincode('');
+      setNewPhone('');
+      setNewDeliveryPartner('');
+      setNewItems([]);
+    } catch (error) {
+      console.error('Unexpected error saving new order:', error); // Log unexpected errors
+      toast({ title: 'Error', description: 'Failed to save the order.', variant: 'destructive' });
+    }
+  };
+
   return (
     <div className="p-2 sm:p-6 space-y-6">
-      {/* Weight Update Dialog */}
-      <Dialog open={isWeightDialogOpen} onOpenChange={setIsWeightDialogOpen}>
-        <DialogContent className="max-w-2xl w-full max-h-[90vh] flex flex-col">
-          <DialogTitle>Update Weights for Packed Orders</DialogTitle>
-          <DialogDescription>
-            Enter the total weight (kg) for each order before marking as packed.
+      {/* Tracking Code Dialog */}
+      <Dialog open={isTrackingCodeDialogOpen} onOpenChange={setIsTrackingCodeDialogOpen}>
+        <DialogContent className="max-w-2xl" aria-describedby="tracking-code-description">
+          <DialogTitle>Enter Tracking Codes</DialogTitle>
+          <DialogDescription id="tracking-code-description">
+            Provide tracking codes for the selected orders.
           </DialogDescription>
-
-          <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
-            <div className="space-y-4">
-              {ordersForWeightUpdate.map(order => (
-                <Card key={order.id} className="p-4 border border-gray-200">
-                  <div className="mb-3">
-                    <p className="font-semibold text-sm text-gray-900">Order ID: {order.id}</p>
-                    <p className="text-xs text-gray-600">Items: {(order.items || []).map(i => `${i.name} (x${i.quantity})`).join(', ')}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor={`weight-${order.id}`} className="min-w-fit">
-                      Total Weight (kg):
-                    </Label>
-                    <Input
-                      id={`weight-${order.id}`}
-                      type="number"
-                      step="0.001"
-                      min="0"
-                      value={weights[order.id] || ''}
-                      onChange={(e) => setWeights(prev => ({
-                        ...prev,
-                        [order.id]: e.target.value
-                      }))}
-                      placeholder="Enter weight in kg"
-                      className="flex-1"
-                    />
-                  </div>
-                </Card>
-              ))}
-            </div>
+          <div className="space-y-4">
+            {selectedOrderIds.map((id) => (
+              <div key={id} className="flex items-center gap-2">
+                <Label htmlFor={`tracking-${id}`}>Order ID: {id}</Label>
+                <Input
+                  id={`tracking-${id}`}
+                  value={trackingCodes[id] || ''}
+                  onChange={(e) => setTrackingCodes((prev) => ({ ...prev, [id]: e.target.value }))}
+                  placeholder="Enter tracking code"
+                />
+              </div>
+            ))}
           </div>
-
-          <div className="flex justify-end gap-2 border-t pt-4 px-6 shrink-0">
-            <Button variant="outline" onClick={() => {
-              setIsWeightDialogOpen(false);
-              setOrdersForWeightUpdate([]);
-              setWeights({});
-            }}>
-              Cancel
-            </Button>
-            <Button onClick={handleWeightSave}>
-              Save & Mark Packed
-            </Button>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setIsTrackingCodeDialogOpen(false)}>Cancel</Button>
+            <Button onClick={saveTrackingCodesAndDispatch}>Dispatch</Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Weight Dialog (for Mark Packed) */}
+      <Dialog open={isWeightDialogOpen} onOpenChange={setIsWeightDialogOpen}>
+        <DialogContent className="max-w-2xl" aria-describedby="weight-dialog-description">
+          <DialogTitle>Enter Weights / Mark Packed</DialogTitle>
+          <DialogDescription id="weight-dialog-description">
+            Enter total weight (kg) for the selected orders, then click Mark Packed.
+          </DialogDescription>
+          <div className="space-y-4">
+            {(ordersForWeightUpdate || []).map((order) => (
+              <div key={order.id} className="flex items-center gap-2">
+                <Label htmlFor={`weight-${order.id}`}>Order ID: {order.id}</Label>
+                <Input
+                  id={`weight-${order.id}`}
+                  type="number"
+                  step="0.001"
+                  value={weights[order.id] || ''}
+                  onChange={(e) => setWeights((prev) => ({ ...prev, [order.id]: e.target.value }))}
+                  placeholder="Weight (kg)"
+                />
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => { setIsWeightDialogOpen(false); setOrdersForWeightUpdate([]); setWeights({}); }}>Cancel</Button>
+            <Button onClick={handleConfirmMarkPacked}>Mark Packed</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Order Details Dialog */}
+      <Dialog open={isOrderDetailsDialogOpen} onOpenChange={setIsOrderDetailsDialogOpen}>
+        <DialogContent className="max-w-lg p-6 bg-white rounded-lg shadow-md" aria-describedby="order-details-description">
+            <DialogTitle className="text-xl font-bold text-gray-800">Order Details</DialogTitle>
+            <DialogDescription id="order-details-description" className="text-sm text-gray-600 mb-4">
+              Details for Order ID: <span className="font-medium text-gray-800">{orderDetails?.id || 'N/A'}</span>
+            </DialogDescription>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <div>
+                  <div className="text-xs text-gray-500">Customer</div>
+                  <div className="font-medium text-gray-800">{orderDetails?.customerName || <span className="italic text-gray-400">No name</span>}</div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-gray-500">Phone</div>
+                  <div className="text-gray-800">{orderDetails?.phone || 'N/A'}</div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-gray-500">Address</div>
+                  <div className="text-gray-800">{orderDetails ? `${orderDetails.address || ''}${orderDetails.city ? ', ' + orderDetails.city : ''}${orderDetails.state ? ', ' + orderDetails.state : ''}${orderDetails.pincode ? ' — PIN: ' + orderDetails.pincode : ''}` : 'N/A'}</div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div>
+                  <div className="text-xs text-gray-500">Date & Time</div>
+                  <div className="text-gray-800">{formatDateTime(orderDetails?.date || orderDetails?.createdAt)}</div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-gray-500">Courier Partner</div>
+                  <div className="text-gray-800">{orderDetails?.deliveryPartner || <span className="italic text-gray-400">pending</span>}</div>
+                </div>
+
+                <div>
+                  <div className="text-xs text-gray-500">Weight (kg)</div>
+                  <div className="text-gray-800">{(() => { const w = computeWeight(orderDetails); return w !== null ? Number(w).toFixed(3) : 'N/A'; })()}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <div className="text-xs text-gray-500">Packing Fee</div>
+                <div className="text-gray-800">{computePackingFee(orderDetails)}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-gray-500">Tracking Code</div>
+                <div className="text-gray-800">{orderDetails?.trackingCode || <span className="italic text-gray-400">N/A</span>}</div>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="text-xs text-gray-500 mb-2">Status Timeline</div>
+              <div className="space-y-2 bg-gray-50 p-3 rounded">
+                <div className="flex justify-between"><span className="text-sm text-gray-600">Created</span><span className="text-sm font-medium">{formatDateTime(orderDetails?.createdAt || orderDetails?.date)}</span></div>
+                <div className="flex justify-between"><span className="text-sm text-gray-600">Packed</span><span className={`text-sm ${orderDetails?.packedAt ? 'font-medium text-gray-800' : 'italic text-gray-400'}`}>{orderDetails?.packedAt ? formatDateTime(orderDetails.packedAt) : 'pending'}</span></div>
+                <div className="flex justify-between"><span className="text-sm text-gray-600">Dispatched</span><span className={`text-sm ${orderDetails?.dispatchedAt ? 'font-medium text-gray-800' : 'italic text-gray-400'}`}>{orderDetails?.dispatchedAt ? formatDateTime(orderDetails.dispatchedAt) : 'pending'}</span></div>
+                <div className="flex justify-between"><span className="text-sm text-gray-600">Delivered</span><span className={`text-sm ${orderDetails?.deliveredAt ? 'font-medium text-gray-800' : 'italic text-gray-400'}`}>{orderDetails?.deliveredAt ? formatDateTime(orderDetails.deliveredAt) : 'pending'}</span></div>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <div className="text-xs text-gray-500 mb-2">Items</div>
+              <ul className="divide-y divide-gray-100 bg-white rounded shadow-sm">
+                {(orderDetails?.items || []).length === 0 ? (
+                  <li className="px-4 py-3 italic text-gray-400">No items marked</li>
+                ) : (
+                  (orderDetails.items || []).map((item, index) => (
+                    <li key={index} className="flex justify-between items-center px-4 py-3">
+                      <span className="text-gray-800">{item.name || item.title || 'Item'}</span>
+                      <span className="text-sm text-gray-600">x{item.quantity || 1}</span>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6">
+              {orderDetails && (
+                <Button className="px-4 py-2 text-sm" onClick={() => openAdminEditDialog(orderDetails)}>Edit</Button>
+              )}
+              <Button variant="outline" className="px-4 py-2 text-sm" onClick={() => setIsOrderDetailsDialogOpen(false)}>Close</Button>
+            </div>
+        </DialogContent>
+      </Dialog>
+
       <h1 className="text-3xl font-bold mb-4">All Orders</h1>
       <Button onClick={() => setIsAddOrderOpen(true)} className="mb-4">Add Order</Button>
       <Card>
@@ -804,16 +1400,37 @@ const openMarkItemsDialog = (order) => {
                    {filteredOrders.map(order => {
                      const hasUploadedPDF = (order.shippingLabelFile || order.shippingLabelBase64) && !order.generatedPDF;
                      const hasNoItems = !order.items || order.items.length === 0;
-                     let computedWeight = (order.totalWeightKg !== undefined && order.totalWeightKg !== null)
-                       ? parseFloat(order.totalWeightKg)
-                       : (order.items || []).reduce((s, it) => {
-                         const prod = products.find(p => p.id === it.productId) || {};
-                         const actual = prod.weightKg || 0;
-                         const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
-                         const perItem = Math.max(actual, vol);
-                         return s + perItem * (it.quantity || 0);
-                       }, 0);
-                     if (!isFinite(computedWeight) || isNaN(computedWeight)) computedWeight = 0;
+                     // Prefer showing the packer's entered weight (`packedweight`).
+                     // If not present, fall back to `totalWeightKg`, then to per-item `weightKg` / product weights, otherwise show 'N/A'.
+                     let computedWeightValue = null;
+                     if (order.packedweight !== undefined && order.packedweight !== null && order.packedweight !== '') {
+                       const parsed = parseFloat(order.packedweight);
+                       computedWeightValue = (isFinite(parsed) && !isNaN(parsed)) ? parsed : 0;
+                     } else if (order.totalWeightKg !== undefined && order.totalWeightKg !== null && order.totalWeightKg !== '') {
+                       const parsed = parseFloat(order.totalWeightKg);
+                       computedWeightValue = (isFinite(parsed) && !isNaN(parsed)) ? parsed : 0;
+                     } else {
+                       // Sum per-item weightKg if available, else compute from product metadata
+                       let perItemsSum = 0;
+                       let foundAny = false;
+                       (order.items || []).forEach(it => {
+                         if (it && (it.weightKg !== undefined && it.weightKg !== null && it.weightKg !== '')) {
+                           const v = parseFloat(it.weightKg);
+                           if (isFinite(v) && !isNaN(v)) {
+                             perItemsSum += v * (it.quantity || 1);
+                             foundAny = true;
+                           }
+                         } else {
+                           const prod = products.find(p => p.id === it.productId) || {};
+                           const actual = prod.weightKg || 0;
+                           const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+                           const perItem = Math.max(actual, vol);
+                           perItemsSum += perItem * (it.quantity || 1);
+                         }
+                       });
+                       if (foundAny || perItemsSum > 0) computedWeightValue = perItemsSum;
+                       else computedWeightValue = null;
+                     }
                      const packingFee = (order.items || []).reduce((sum, item) => {
                        const prod = products.find(p => p.id === item.productId);
                        if (!prod) return sum;
@@ -833,7 +1450,9 @@ const openMarkItemsDialog = (order) => {
                        <TableCell>
                          <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
                        </TableCell>
-                       <TableCell>{order.id}</TableCell>
+                       <TableCell>
+                         <Button variant="link" onClick={() => openOrderDetails(order)}>{order.id}</Button>
+                       </TableCell>
                        <TableCell>{users.find(user => user.id === order.merchantId)?.companyName || users.find(user => user.id === order.merchantId)?.name || order.merchantId}</TableCell>
                        <TableCell>{order.customerName || (order.shippingLabelBase64 ? 'bulk order' : <span className="italic text-muted-foreground">No customer name</span>)}</TableCell>
                        <TableCell>{order.date}{order.time ? ` ${order.time}` : ''}</TableCell>
@@ -892,14 +1511,10 @@ const openMarkItemsDialog = (order) => {
                            )}
                          </div>
                        </TableCell>
-                       <TableCell>{computedWeight.toFixed(3)}</TableCell>
+                       <TableCell>{computedWeightValue !== null ? computedWeightValue.toFixed(3) : 'N/A'}</TableCell>
                        <TableCell>₹{packingFee.toFixed(2)}</TableCell>
                        <TableCell>
-                         <StatusTimelineDropdown 
-                           order={order} 
-                           isExpanded={expandedOrderIds.has(`status-${order.id}`)}
-                           onToggle={() => toggleExpandOrder(`status-${order.id}`)}
-                         />
+                         <StatusTimelineDropdown order={order} />
                        </TableCell>
                      </motion.tr>
                      );
@@ -916,7 +1531,7 @@ const openMarkItemsDialog = (order) => {
          <DialogContent className="max-w-lg" aria-describedby="add-order-manual-desc">
            <DialogTitle>Add Order - Manual Entry</DialogTitle>
            <DialogDescription id="add-order-manual-desc">
-             Add order manually by filling the form below or upload a shipping label.
+             Add order manually.
            </DialogDescription>
            <div className="mt-4">
              <div className="flex space-x-4 border-b border-gray-300">
@@ -926,12 +1541,7 @@ const openMarkItemsDialog = (order) => {
                >
                  Manual Entry
                </button>
-               <button
-                 className={`px-4 py-2 font-semibold ${addOrderTab === 'upload' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-600'}`}
-                 onClick={() => setAddOrderTab('upload')}
-               >
-                 Upload Shipping Label
-               </button>
+
              </div>
                    {addOrderTab === 'manual' && (
                      <div className="space-y-4 mt-4">
@@ -1086,45 +1696,37 @@ const openMarkItemsDialog = (order) => {
                            </Select>
                          </div>
                        )}
+                       {/* Add Tracking Code input box to Manual Entry form */}
+                       {isEditingOrder && (
+  <div className="flex flex-col sm:flex-row sm:space-x-4 space-y-4 sm:space-y-0">
+    <div className="flex-1">
+      <Label htmlFor="trackingCode" className="block mb-1 font-medium text-gray-700">Tracking Code</Label>
+      <Input
+        id="trackingCode"
+        value={newTrackingCode}
+        onChange={(e) => setNewTrackingCode(e.target.value)}
+        placeholder="Enter Tracking Code"
+        className="block w-full border border-gray-300 rounded px-3 py-2 text-sm"
+      />
+    </div>
+  </div>
+)}
                      </div>
                    )}
-             {addOrderTab === 'upload' && (
-               <div className="mt-4 space-y-4">
-                 <div>
-                   <Label htmlFor="merchantUpload">Select Merchant</Label>
-                   <Select value={selectedMerchantId} onValueChange={setSelectedMerchantId}>
-                     <SelectTrigger className="w-full">
-                       <SelectValue>
-                         {selectedMerchantId
-                           ? (users.find(user => user.id === selectedMerchantId)?.companyName || users.find(user => user.id === selectedMerchantId)?.name || selectedMerchantId)
-                           : "Select merchant"}
-                       </SelectValue>
-                     </SelectTrigger>
-                     <SelectContent>
-                       {users
-                         .filter(user => user.role === 'merchant')
-                         .map(user => (
-                           <SelectItem key={user.id} value={user.id}>
-                             {user.companyName || user.name || user.id}
-                           </SelectItem>
-                         ))}
-                     </SelectContent>
-                   </Select>
-                 </div>
-                 <div>
-                   <Label htmlFor="shippingLabelFile">Upload Shipping Label</Label>
-                   <Input
-                     id="shippingLabelFile"
-                     type="file"
-                     accept=".pdf,.png,.jpg,.jpeg"
-                     onChange={(e) => setUploadFile(e.target.files ? e.target.files[0] : null)}
-                   />
-                 </div>
-               </div>
-             )}
+             
              <div className="mt-4 flex justify-end space-x-2">
                <Button variant="outline" onClick={() => setIsAddOrderOpen(false)}>Cancel</Button>
-               <Button onClick={handleSubmitNewOrder}>Submit</Button>
+               <Button
+  className="px-4 py-2 bg-blue-600 text-white text-sm rounded"
+  onClick={async () => {
+      if (isEditingOrder && editOrderId) {
+      await saveTrackingCodeAndRefresh(editOrderId, newTrackingCode);
+    }
+    setIsAddOrderOpen(false);
+  }}
+>
+  Save
+</Button>
              </div>
            </div>
          </DialogContent>
@@ -1193,3 +1795,30 @@ const openMarkItemsDialog = (order) => {
 };
 
 export default AdminOrders;
+
+// Example data structure for testing
+const testData = {
+  shipping_address: {
+    name: "kjhj",
+    address1: "oksokzdod",
+    address2: "",
+    city: "osadij",
+    province: "doaisj",
+    zip: "109832",
+    phone: "1321309832",
+  },
+  order: {
+    name: "ord-1764304917963",
+    created_at: "2025-11-28",
+  },
+};
+
+// Test the template rendering
+const template = `
+  <strong>City:</strong> {{ shipping_address.city }}<br>
+  <strong>State:</strong> {{ shipping_address.province }}<br>
+  <strong>PIN:</strong> {{ shipping_address.zip }}<br>
+`;
+
+const rendered = renderTemplate(template, testData);
+console.log("Rendered Template:", rendered);

@@ -174,8 +174,10 @@ export const InventoryProvider = ({ children }) => {
         return false;
       }
       const data = await response.json();
-      setCurrentUser(data.user);
-      localStorage.setItem('currentUser', JSON.stringify(data.user));
+      // store token along with user info for authenticated requests
+      const userWithToken = { ...data.user, token: data.token };
+      setCurrentUser(userWithToken);
+      localStorage.setItem('currentUser', JSON.stringify(userWithToken));
       toast({ title: "Login Successful", description: `Welcome, ${data.user.companyName}!` });
       return true;
     } catch (error) {
@@ -448,14 +450,32 @@ export const InventoryProvider = ({ children }) => {
       setOrders(prev => prev.map(o => o.id === orderId ? savedOrder : o));
       toast({ title: "Order Updated", description: `Order ${orderId} has been updated.` });
       await fetchAllData();
+      // Return the saved order for callers that want to inspect the result
+      return savedOrder;
     } catch (error) {
       toast({ title: "Error", description: "Failed to update order.", variant: "destructive" });
     }
   };
 
+  // Replace or insert a single order object into local orders state (used after PATCH responses)
+  const replaceOrder = (orderObj) => {
+    if (!orderObj || !orderObj.id) return;
+    setOrders(prev => {
+      const exists = prev.some(o => o.id === orderObj.id);
+      if (exists) return prev.map(o => o.id === orderObj.id ? orderObj : o);
+      return [orderObj, ...prev];
+    });
+  };
+
   const removeOrder = async (orderId) => {
     try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/orders/${orderId}`, { method: 'DELETE' });
+      const headers = {};
+      if (currentUser?.token) headers['Authorization'] = `Bearer ${currentUser.token}`;
+      const response = await fetch(`https://forwokbackend-1.onrender.com/api/orders/${orderId}`, { method: 'DELETE', headers });
+      if (response.status === 401) {
+        toast({ title: 'Unauthorized', description: 'Please login to perform this action.', variant: 'destructive' });
+        return;
+      }
       if (!response.ok) throw new Error('Failed to delete order');
       setOrders(prev => prev.filter(o => o.id !== orderId));
       toast({ title: "Order Removed", description: `Order ${orderId} has been removed.` });
@@ -465,7 +485,7 @@ export const InventoryProvider = ({ children }) => {
     }
   };
 
-  const dispatchOrder = async (orderId) => {
+  const dispatchOrder = async (orderId, extraFields = {}) => {
     if (currentUser?.role !== 'admin' && currentUser?.role !== 'superadmin') {
        toast({ title: "Permission Denied", description: "Only admins can dispatch orders.", variant: "destructive" });
        return;
@@ -514,8 +534,16 @@ export const InventoryProvider = ({ children }) => {
     for (const inv of changedInventory) {
       await updateInventoryItem(inv.id, { quantity: inv.quantity });
     }
-    // Persist status and dispatched timestamp together
-    await updateOrder(orderId, { status: 'dispatched', dispatchDate: new Date().toISOString().split('T')[0], dispatchedAt: new Date().toISOString() });
+    // Persist status and dispatched timestamp together. Preserve existing trackingCode if present.
+    const existingTrackingCode = order.trackingCode;
+    const payload = {
+      status: 'dispatched',
+      dispatchDate: new Date().toISOString().split('T')[0],
+      dispatchedAt: new Date().toISOString(),
+      ...extraFields
+    };
+    if (existingTrackingCode && payload.trackingCode === undefined) payload.trackingCode = existingTrackingCode;
+    const savedOrder = await updateOrder(orderId, payload);
 
     const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -550,6 +578,7 @@ export const InventoryProvider = ({ children }) => {
     }
 
     toast({ title: "Order Dispatched", description: `Order ${orderId} marked as dispatched and inventory updated.` });
+    return savedOrder;
   };
 
   const markOrderPacked = async (orderId) => {
@@ -590,7 +619,7 @@ export const InventoryProvider = ({ children }) => {
        fee: fee
      };
      try {
-       const response = await fetch('https://forwokbackend-1.onrender.com/api/inbounds', {
+      const response = await fetch('https://forwokbackend-1.onrender.com/api/inbounds', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify(newInbound),
@@ -825,7 +854,9 @@ export const InventoryProvider = ({ children }) => {
       users: filteredUsers, setUsers,
       savedPickupLocations, addPickupLocation, updatePickupLocation, deletePickupLocation,
       currentUser, setCurrentUser, login, register, logout,
-      addAdmin, removeUser
+      addAdmin, removeUser,
+      // helper to replace order object directly from server responses (PATCH)
+      replaceOrder
     }}>
       {children}
     </InventoryContext.Provider>

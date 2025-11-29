@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useInventory } from '../context/inventory-context.jsx';
 import { Button } from '../components/ui/button.jsx';
 import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription } from '../components/ui/dialog.jsx';
@@ -219,6 +219,51 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
   // Multi-select for merchant panel
   const [selectedOrderIds, setSelectedOrderIds] = useState([]);
   const [expandedOrderIds, setExpandedOrderIds] = useState(new Set());
+
+  // Mobile view detection and order details modal
+  const [isMobileView, setIsMobileView] = useState(false);
+  const [selectedOrderForModal, setSelectedOrderForModal] = useState(null);
+  const [isOrderDialogOpen, setIsOrderDialogOpen] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobileView(typeof window !== 'undefined' && window.innerWidth < 640);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  // Normalize status timeline from order object
+  const getStatusTimeline = (order) => {
+    if (!order) return [];
+    // If there's already a timeline array, try to normalize it to our 4-step view
+    const pickDate = (v) => {
+      if (!v) return null;
+      if (typeof v === 'string') return v;
+      if (v.date) return v.date;
+      if (v.timestamp) return v.timestamp;
+      return null;
+    };
+
+    // helper to find in statusTimeline array by key or label
+    const findInArray = (arr, key) => {
+      if (!Array.isArray(arr)) return null;
+      const found = arr.find(x => (x.status && x.status.toLowerCase().includes(key)) || (x.title && x.title.toLowerCase().includes(key)) || (String(x).toLowerCase().includes(key)));
+      return found ? pickDate(found.date || found.timestamp || found) : null;
+    };
+
+    const source = order.statusTimeline || order.timeline || [];
+    const created = order.createdAt || order.created_at || order.date || findInArray(source, 'created') || null;
+    const packed = order.packedAt || order.packed_at || findInArray(source, 'packed') || (order.status === 'packed' ? (order.updatedAt || order.updated_at) : null) || null;
+    const dispatched = order.dispatchedAt || order.dispatched_at || findInArray(source, 'dispatch') || (order.status === 'dispatched' ? (order.updatedAt || order.updated_at) : null) || null;
+    const delivered = order.deliveredAt || order.delivered_at || findInArray(source, 'deliver') || (order.status === 'delivered' ? (order.updatedAt || order.updated_at) : null) || null;
+
+    return [
+      { key: 'created', label: 'Created', value: created || 'pending' },
+      { key: 'packed', label: 'Packed', value: packed || 'pending' },
+      { key: 'dispatched', label: 'Dispatched', value: dispatched || 'pending' },
+      { key: 'delivered', label: 'Delivered', value: delivered || 'pending' },
+    ];
+  };
 
   const toggleExpandOrder = (orderId) => {
     setExpandedOrderIds(prev => {
@@ -865,7 +910,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>
+                      <TableHead className="hidden sm:table-cell">
                         <input
                           type="checkbox"
                           checked={filteredOrders.length > 0 && filteredOrders.every(o => selectedOrderIds.includes(o.id))}
@@ -875,12 +920,12 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer</TableHead>
                       <TableHead>Date &amp; Time</TableHead>
-                      <TableHead>Courier Partner</TableHead>
-                      <TableHead>Items</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Weight (kg)</TableHead>
-                      <TableHead>Packing Fee (₹)</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead className="hidden sm:table-cell">Courier Partner</TableHead>
+                      <TableHead className="hidden sm:table-cell">Items</TableHead>
+                      <TableHead className="hidden sm:table-cell">Quantity</TableHead>
+                      <TableHead className="hidden sm:table-cell">Weight (kg)</TableHead>
+                      <TableHead className="hidden sm:table-cell">Packing Fee (₹)</TableHead>
+                      <TableHead className="hidden sm:table-cell">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -896,14 +941,20 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       }, 0);
                       return (
                       <TableRow key={order.id}>
-                        <TableCell>
-                          <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
-                        </TableCell>
-                        <TableCell>{order.id}</TableCell>
+                          <TableCell className="hidden sm:table-cell">
+                            <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
+                          </TableCell>
+                          <TableCell>
+                            {isMobileView ? (
+                              <button className="text-blue-600 underline" onClick={() => { setSelectedOrderForModal(order); setIsOrderDialogOpen(true); }}>{order.id}</button>
+                            ) : (
+                              order.id
+                            )}
+                          </TableCell>
                         <TableCell>{order.customerName}</TableCell>
                         <TableCell>{order.date}{order.time ? ` ${order.time}` : ''}</TableCell>
-                        <TableCell>{order.deliveryPartner || <span className="italic text-muted-foreground">pending</span>}</TableCell>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">{order.deliveryPartner || <span className="italic text-muted-foreground">pending</span>}</TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <div className="relative inline-block text-left">
                             <button
                               type="button"
@@ -957,13 +1008,13 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>{order.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
-                        <TableCell>{((order.totalWeightKg !== undefined && order.totalWeightKg !== null)
+                        <TableCell className="hidden sm:table-cell">{order.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
+                        <TableCell className="hidden sm:table-cell">{((order.totalWeightKg !== undefined && order.totalWeightKg !== null)
                           ? order.totalWeightKg
                           : (order.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0)
                         ).toFixed(3)}</TableCell>
-                        <TableCell>₹{packingFee.toFixed(2)}</TableCell>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">₹{packingFee.toFixed(2)}</TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <StatusTimelineDropdown order={order} isExpanded={expandedOrderIds.has(`status-${order.id}`)} onToggle={() => toggleExpandOrder(`status-${order.id}`)} />
                         </TableCell>
                       </TableRow>
@@ -989,7 +1040,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>
+                      <TableHead className="hidden sm:table-cell">
                         <input
                           type="checkbox"
                           checked={filteredOrders.length > 0 && filteredOrders.every(o => selectedOrderIds.includes(o.id))}
@@ -998,11 +1049,11 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       </TableHead>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer</TableHead>
-                      <TableHead>Items</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Weight (kg)</TableHead>
-                      <TableHead>Packing Fee (₹)</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead className="hidden sm:table-cell">Items</TableHead>
+                      <TableHead className="hidden sm:table-cell">Quantity</TableHead>
+                      <TableHead className="hidden sm:table-cell">Weight (kg)</TableHead>
+                      <TableHead className="hidden sm:table-cell">Packing Fee (₹)</TableHead>
+                      <TableHead className="hidden sm:table-cell">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1018,19 +1069,25 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       }, 0);
                       return (
                       <TableRow key={order.id}>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
                         </TableCell>
-                        <TableCell>{order.id}</TableCell>
+                        <TableCell>
+                          {isMobileView ? (
+                            <button className="text-blue-600 underline" onClick={() => { setSelectedOrderForModal(order); setIsOrderDialogOpen(true); }}>{order.id}</button>
+                          ) : (
+                            order.id
+                          )}
+                        </TableCell>
                         <TableCell>{order.customerName}</TableCell>
-                        <TableCell>{order.items.map(item => item.name).join(', ')}</TableCell>
-                        <TableCell>{order.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
-                        <TableCell>{((order.totalWeightKg !== undefined && order.totalWeightKg !== null)
+                        <TableCell className="hidden sm:table-cell">{order.items.map(item => item.name).join(', ')}</TableCell>
+                        <TableCell className="hidden sm:table-cell">{order.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
+                        <TableCell className="hidden sm:table-cell">{((order.totalWeightKg !== undefined && order.totalWeightKg !== null)
                           ? order.totalWeightKg
                           : (order.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0)
                         ).toFixed(3)}</TableCell>
-                        <TableCell>₹{packingFee.toFixed(2)}</TableCell>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">₹{packingFee.toFixed(2)}</TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <StatusTimelineDropdown order={order} isExpanded={expandedOrderIds.has(`status-${order.id}`)} onToggle={() => toggleExpandOrder(`status-${order.id}`)} />
                         </TableCell>
                       </TableRow>
@@ -1056,7 +1113,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>
+                      <TableHead className="hidden sm:table-cell">
                         <input
                           type="checkbox"
                           checked={filteredOrders.length > 0 && filteredOrders.every(o => selectedOrderIds.includes(o.id))}
@@ -1065,11 +1122,11 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       </TableHead>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer</TableHead>
-                      <TableHead>Items</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Weight (kg)</TableHead>
-                      <TableHead>Packing Fee (₹)</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead className="hidden sm:table-cell">Items</TableHead>
+                      <TableHead className="hidden sm:table-cell">Quantity</TableHead>
+                      <TableHead className="hidden sm:table-cell">Weight (kg)</TableHead>
+                      <TableHead className="hidden sm:table-cell">Packing Fee (₹)</TableHead>
+                      <TableHead className="hidden sm:table-cell">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1085,19 +1142,25 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       }, 0);
                       return (
                       <TableRow key={order.id}>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
                         </TableCell>
-                        <TableCell>{order.id}</TableCell>
+                        <TableCell>
+                          {isMobileView ? (
+                            <button className="text-blue-600 underline" onClick={() => { setSelectedOrderForModal(order); setIsOrderDialogOpen(true); }}>{order.id}</button>
+                          ) : (
+                            order.id
+                          )}
+                        </TableCell>
                         <TableCell>{order.customerName}</TableCell>
-                        <TableCell>{order.items.map(item => item.name).join(', ')}</TableCell>
-                        <TableCell>{order.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
-                        <TableCell>{((order.totalWeightKg !== undefined && order.totalWeightKg !== null)
+                        <TableCell className="hidden sm:table-cell">{order.items.map(item => item.name).join(', ')}</TableCell>
+                        <TableCell className="hidden sm:table-cell">{order.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
+                        <TableCell className="hidden sm:table-cell">{((order.totalWeightKg !== undefined && order.totalWeightKg !== null)
                           ? order.totalWeightKg
                           : (order.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0)
                         ).toFixed(3)}</TableCell>
-                        <TableCell>₹{packingFee.toFixed(2)}</TableCell>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">₹{packingFee.toFixed(2)}</TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <StatusTimelineDropdown order={order} isExpanded={expandedOrderIds.has(`status-${order.id}`)} onToggle={() => toggleExpandOrder(`status-${order.id}`)} />
                         </TableCell>
                       </TableRow>
@@ -1123,7 +1186,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>
+                      <TableHead className="hidden sm:table-cell">
                         <input
                           type="checkbox"
                           checked={filteredOrders.length > 0 && filteredOrders.every(o => selectedOrderIds.includes(o.id))}
@@ -1132,11 +1195,11 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       </TableHead>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer</TableHead>
-                      <TableHead>Items</TableHead>
-                      <TableHead>Quantity</TableHead>
-                      <TableHead>Weight (kg)</TableHead>
-                      <TableHead>Packing Fee (₹)</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead className="hidden sm:table-cell">Items</TableHead>
+                      <TableHead className="hidden sm:table-cell">Quantity</TableHead>
+                      <TableHead className="hidden sm:table-cell">Weight (kg)</TableHead>
+                      <TableHead className="hidden sm:table-cell">Packing Fee (₹)</TableHead>
+                      <TableHead className="hidden sm:table-cell">Status</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1152,10 +1215,16 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       }, 0);
                       return (
                       <TableRow key={order.id}>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
                         </TableCell>
-                        <TableCell>{order.id}</TableCell>
+                        <TableCell>
+                          {isMobileView ? (
+                            <button className="text-blue-600 underline" onClick={() => { setSelectedOrderForModal(order); setIsOrderDialogOpen(true); }}>{order.id}</button>
+                          ) : (
+                            order.id
+                          )}
+                        </TableCell>
                         <TableCell>{order.customerName}</TableCell>
                         <TableCell>{order.items.map(item => item.name).join(', ')}</TableCell>
                         <TableCell>{order.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
@@ -1356,6 +1425,108 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
               <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
               <Button type="button" onClick={() => { console.log('Submit clicked'); handleSubmit(); }}>Submit</Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* Mobile Order Details Dialog (opened when Order ID clicked on small screens) */}
+      <Dialog open={isOrderDialogOpen} onOpenChange={(v) => { setIsOrderDialogOpen(v); if (!v) setSelectedOrderForModal(null); }}>
+        <DialogContent className="w-full max-w-md p-4" aria-describedby="mobile-order-details-desc">
+          <DialogTitle>Order Details</DialogTitle>
+          <DialogDescription id="mobile-order-details-desc">Details for selected order</DialogDescription>
+          {selectedOrderForModal ? (
+            <div className="mt-4 space-y-3 text-sm">
+              <div>
+                <div className="font-medium">Order ID</div>
+                <div className="text-gray-700">{selectedOrderForModal.id}</div>
+              </div>
+              <div>
+                <div className="font-medium">Customer</div>
+                <div className="text-gray-700">{selectedOrderForModal.customerName || selectedOrderForModal.customer || '—'}</div>
+              </div>
+              <div>
+                <div className="font-medium">Phone</div>
+                <div className="text-gray-700">{selectedOrderForModal.phone || '—'}</div>
+              </div>
+              <div>
+                <div className="font-medium">Address</div>
+                <div className="text-gray-700">{selectedOrderForModal.address || `${selectedOrderForModal.address1 || ''}${selectedOrderForModal.city ? ', ' + selectedOrderForModal.city : ''}${selectedOrderForModal.pincode ? ' — PIN: ' + selectedOrderForModal.pincode : ''}`}</div>
+              </div>
+              <div>
+                <div className="font-medium">Date &amp; Time</div>
+                <div className="text-gray-700">{(selectedOrderForModal.date || '') + (selectedOrderForModal.time ? `, ${selectedOrderForModal.time}` : '')}</div>
+              </div>
+              <div>
+                <div className="font-medium">Courier Partner</div>
+                <div className="text-gray-700">{selectedOrderForModal.deliveryPartner || '—'}</div>
+              </div>
+              <div>
+                <div className="font-medium">Weight (kg)</div>
+                <div className="text-gray-700">{(() => {
+                  const w = (selectedOrderForModal.totalWeightKg !== undefined && selectedOrderForModal.totalWeightKg !== null)
+                    ? Number(selectedOrderForModal.totalWeightKg)
+                    : (selectedOrderForModal.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0);
+                  return (typeof w === 'number' && !isNaN(w)) ? w.toFixed(3) : '—';
+                })()}</div>
+              </div>
+              <div>
+                <div className="font-medium">Packing Fee</div>
+                <div className="text-gray-700">{(() => {
+                  const pf = (selectedOrderForModal.items || []).reduce((sum, item) => {
+                    const prod = products.find(p => p.id === item.productId);
+                    if (!prod) return sum;
+                    const actual = prod.weightKg || 0;
+                    const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+                    const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
+                    return sum + feePerItem * (item.quantity || 0);
+                  }, 0);
+                  return pf ? `₹${pf.toFixed(2)}` : '₹0.00';
+                })()}</div>
+              </div>
+              <div>
+                <div className="font-medium">Tracking Code</div>
+                <div className="text-gray-700">{selectedOrderForModal.trackingCode || 'N/A'}</div>
+              </div>
+              <div>
+                <div className="font-medium">Status Timeline</div>
+                <div className="text-gray-700">
+                  {(() => {
+                    const tl = getStatusTimeline(selectedOrderForModal || {});
+                    return (
+                      <ul className="list-none p-0 m-0">
+                        {tl.map((s) => (
+                          <div key={s.key} className="flex justify-between py-1 border-b last:border-b-0">
+                            <div className="text-sm text-gray-800">{s.label}</div>
+                            <div className={`text-sm ${s.value === 'pending' ? 'text-gray-500 italic' : 'text-gray-700'}`}>{s.value}</div>
+                          </div>
+                        ))}
+                      </ul>
+                    );
+                  })()}
+                </div>
+              </div>
+              <div>
+                <div className="font-medium">Items</div>
+                <div className="text-gray-700">
+                  {(selectedOrderForModal.items || []).map((it, idx) => (
+                    <div key={idx} className="flex justify-between">
+                      <div>{it.name}</div>
+                      <div className="text-sm">x{it.quantity}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4">No order selected</div>
+          )}
+          <div className="mt-6 flex justify-end gap-2">
+            {selectedOrderForModal && selectedOrderForModal.status === 'pending' && (
+              <>
+                <Button variant="outline" onClick={() => { setIsOrderDialogOpen(false); openEditDialog(selectedOrderForModal); setSelectedOrderForModal(null); }}>Edit</Button>
+                <Button variant="destructive" onClick={() => { if (!confirm('Delete this order?')) return; removeOrder(selectedOrderForModal.id); setIsOrderDialogOpen(false); setSelectedOrderForModal(null); }}>Delete</Button>
+              </>
+            )}
+            <Button variant="outline" onClick={() => { setIsOrderDialogOpen(false); setSelectedOrderForModal(null); }}>Close</Button>
           </div>
         </DialogContent>
       </Dialog>

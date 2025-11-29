@@ -36,7 +36,7 @@ const AdjustStockForm = ({ currentItem, closeModal, getProductName }) => {
 
     // Update in backend (MongoDB)
     // Use PATCH instead of PUT if backend does not allow PUT
-    await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${currentItem.id}`,
+    await fetch(`forwokbackend-1.onrender.com/api/inventory/${currentItem.id}`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

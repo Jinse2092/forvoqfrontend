@@ -25,11 +25,11 @@ const PaymentsPanel = () => {
 
   useEffect(() => {
     if (currentUser?.role === 'merchant' && currentUser?.id) {
-      fetch(`https://forwokbackend-1.onrender.com/api/received-payments?merchantId=${currentUser.id}`)
+      fetch(`forwokbackend-1.onrender.com/api/received-payments?merchantId=${currentUser.id}`)
         .then(res => res.json())
         .then(data => setReceivedPayments(data));
     } else if (currentUser?.role === 'admin') {
-      fetch('https://forwokbackend-1.onrender.com/api/received-payments')
+      fetch('forwokbackend-1.onrender.com/api/received-payments')
         .then(res => res.json())
         .then(data => setReceivedPayments(data.sort((a, b) => new Date(b.date) - new Date(a.date))));
     }
