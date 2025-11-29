@@ -175,7 +175,6 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
   const [editPincode, setEditPincode] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editItems, setEditItems] = useState([]);
-  const [editPackingFeeOverride, setEditPackingFeeOverride] = useState('');
   const [editDeliveryPartner, setEditDeliveryPartner] = useState('');
 
   // New UI state: search and date range filter
@@ -583,7 +582,6 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
     setEditPhone(order.phone || '');
     setEditDeliveryPartner(order.deliveryPartner || '');
     setEditItems((order.items || []).map(it => ({ productId: it.productId, quantity: it.quantity })));
-    setEditPackingFeeOverride(order.packingFee !== undefined ? String(order.packingFee) : '');
     setIsEditOpen(true);
   };
 
@@ -621,20 +619,15 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
     });
     const totalWeightKg = parseFloat(itemsWithWeights.reduce((s, it) => s + (it.weightKg || 0), 0).toFixed(3));
 
-    // Calculate packing fee unless overridden
-    let packingFee = 0;
-    if (editPackingFeeOverride !== '') {
-      packingFee = parseFloat(editPackingFeeOverride) || 0;
-    } else {
-      packingFee = itemsWithWeights.reduce((sum, it) => {
-        const prod = products.find(p => p.id === it.productId);
-        if (!prod) return sum;
-        const actual = prod.weightKg || 0;
-        const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
-        const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
-        return sum + feePerItem * (it.quantity || 0);
-      }, 0);
-    }
+    // Calculate packing fee (auto-calculated)
+    const packingFee = itemsWithWeights.reduce((sum, it) => {
+      const prod = products.find(p => p.id === it.productId);
+      if (!prod) return sum;
+      const actual = prod.weightKg || 0;
+      const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+      const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
+      return sum + feePerItem * (it.quantity || 0);
+    }, 0);
 
     const updated = {
       customerName: editCustomerName.trim(),
@@ -1324,8 +1317,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                 </div>
               ))}
               <Button variant="outline" onClick={handleAddEditItem}>Add Item</Button>
-              <Label>Packing Fee (₹) - leave blank to auto-calc</Label>
-              <Input value={editPackingFeeOverride} onChange={e => setEditPackingFeeOverride(e.target.value)} placeholder="Manual packing fee (optional)" />
+              
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
