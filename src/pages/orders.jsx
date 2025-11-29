@@ -1382,12 +1382,12 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                 <div>
                   <Label>Item</Label>
                   {items.map((item, index) => (
-                    <div key={index} className="flex space-x-2 items-center mb-2">
+                    <div key={index} className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-x-2 mb-2">
                       <Select
                         value={item.productId}
                         onValueChange={value => handleItemChange(index, 'productId', value)}
                       >
-                        <SelectTrigger className="w-48">
+                        <SelectTrigger className="w-full sm:w-48">
                           <SelectValue placeholder="Select product" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1403,14 +1403,14 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                         min="1"
                         value={item.quantity}
                         onChange={e => handleItemChange(index, 'quantity', e.target.value)}
-                        className="w-20"
+                        className="w-full sm:w-20"
                       />
-                      <Button variant="outline" onClick={() => handleRemoveItem(index)}>Remove</Button>
+                      <Button className="w-full sm:w-auto" variant="outline" onClick={() => handleRemoveItem(index)}>Remove</Button>
                     </div>
                   ))}
-                  {items.length === 0 && (
-                    <Button variant="outline" onClick={handleAddItem}>Add Item</Button>
-                  )}
+                  <div className="mt-2">
+                    <Button className="w-full sm:w-auto" variant="outline" onClick={handleAddItem}>Add Item</Button>
+                  </div>
                 </div>
               </TabsContent>
               <TabsContent value="upload">
