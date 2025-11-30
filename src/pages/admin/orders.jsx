@@ -1602,24 +1602,27 @@ const openMarkItemsDialog = (order) => {
                         ))}
                       </div>
                     </div>
-                    <div className="mt-3 text-sm">
-                      <div className="flex justify-between"><span>Box Fee</span><span>₹{(Number(orderDetails.boxFee || 0)).toFixed(2)}</span></div>
-                      <div className="flex justify-between"><span>Box Cutting</span><span>{orderDetails.boxCutting ? '₹2.00' : '₹0.00'}</span></div>
-                      <div className="flex justify-between"><span>Tracking Fee</span><span>₹{(Number(orderDetails.trackingFee !== undefined ? orderDetails.trackingFee : 3)).toFixed(2)}</span></div>
-                      <div className="flex justify-between font-medium mt-2">
-                        <span>Total</span>
-                        <span>{(() => {
-                          const pd = orderDetails.packingDetails || [];
-                          const lines = pd.reduce((s, i) => s + Number(i.lineTotal || 0), 0);
-                          const box = Number(orderDetails.boxFee || 0);
-                          const cutting = orderDetails.boxCutting ? 2 : 0;
-                          const track = Number(orderDetails.trackingFee !== undefined ? orderDetails.trackingFee : 3);
-                          const fallback = lines + box + cutting + track;
-                          const total = (orderDetails.packingFee !== undefined && orderDetails.packingFee !== null)
-                            ? Number(orderDetails.packingFee)
-                            : (orderDetails.totalPackingFee !== undefined ? Number(orderDetails.totalPackingFee) : fallback);
-                          return `₹${total.toFixed(2)}`;
-                        })()}</span>
+                    {/* Extras and totals: match merchant style (no Server total shown) */}
+                    <div className="mt-3 border-t pt-2">
+                      <div className="flex justify-between"><div>Box Fee</div><div>₹{(Number(orderDetails.boxFee) || 0).toFixed(2)}</div></div>
+                      <div className="flex justify-between"><div>Box Cutting</div><div>₹{(orderDetails.boxCutting === true ? 2 : (Number(orderDetails.boxCutting) || 0)).toFixed(2)}</div></div>
+                      <div className="flex justify-between"><div>Tracking Fee</div><div>₹{(orderDetails.trackingFee !== undefined ? Number(orderDetails.trackingFee) : 3).toFixed(2)}</div></div>
+                      <div className="flex justify-between font-semibold mt-2">
+                        <div>Total (calc)</div>
+                        <div>₹{(() => {
+                          const itemsTotal = (orderDetails.packingDetails && orderDetails.packingDetails.length > 0)
+                            ? orderDetails.packingDetails.reduce((s, i) => s + Number(i.lineTotal || 0), 0)
+                            : (orderDetails.items || []).reduce((s, it) => {
+                                const prod = products.find(p => p.id === it.productId) || {};
+                                const c = calculatePerItemComponents(prod);
+                                const per = (c.packing || 0) + (c.transportation || 0) + (c.warehousing || 0);
+                                return s + per * (it.quantity || 0);
+                              }, 0);
+                          const box = Number(orderDetails.boxFee) || 0;
+                          const cutting = orderDetails.boxCutting === true ? 2 : (Number(orderDetails.boxCutting) || 0);
+                          const track = orderDetails.trackingFee !== undefined ? Number(orderDetails.trackingFee) : 3;
+                          return (itemsTotal + box + cutting + track).toFixed(2);
+                        })()}</div>
                       </div>
                     </div>
                   </div>
