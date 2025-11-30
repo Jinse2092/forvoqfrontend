@@ -700,7 +700,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
     (async () => {
       try {
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
-        const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE) ? import.meta.env.VITE_API_BASE : (isLocalDev ? 'https://forwokbackend-1.onrender.com' : '');
+        const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE) ? import.meta.env.VITE_API_BASE : (isLocalDev ? 'http://localhost:4000' : '');
         const singleUrl = `${apiBase}/api/packingfees/${encodeURIComponent(order.id)}`;
         console.log('Merchant: fetching packing fee for order', order.id, 'from', singleUrl);
         const res = await fetch(singleUrl, { cache: 'no-store' });
@@ -725,18 +725,6 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
             packingDetails: pf.items && Array.isArray(pf.items) ? pf.items : prev?.packingDetails,
           }));
         }
-        if (!json) return;
-        // Merge authoritative fields into modal state (do not overwrite unrelated fields)
-        setSelectedOrderForModal(prev => ({
-          ...(prev || {}),
-          // packing fee doc fields (if present)
-          boxFee: json.boxFee !== undefined ? json.boxFee : prev?.boxFee,
-          boxCutting: json.boxCutting !== undefined ? json.boxCutting : prev?.boxCutting,
-          trackingFee: json.trackingFee !== undefined ? json.trackingFee : prev?.trackingFee,
-          totalPackingFee: json.totalPackingFee !== undefined ? json.totalPackingFee : prev?.totalPackingFee,
-          totalWeightKg: json.totalWeightKg !== undefined ? json.totalWeightKg : prev?.totalWeightKg,
-          packingDetails: json.items && Array.isArray(json.items) ? json.items : prev?.packingDetails,
-        }));
       } catch (e) {
         // ignore fetch errors — dialog will still show client-calculated values
       }

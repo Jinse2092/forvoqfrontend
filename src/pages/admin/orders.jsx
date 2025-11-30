@@ -1644,7 +1644,7 @@ const openMarkItemsDialog = (order) => {
                 {(orderDetails?.items || []).length === 0 ? (
                   <li className="px-4 py-3 italic text-gray-400">No items marked</li>
                 ) : (
-                  (orderDetails.items || []).map((item, index) => (
+                  (orderDetails?.items || []).map((item, index) => (
                     <li key={index} className="flex justify-between items-center px-4 py-3">
                       <span className="text-gray-800">{item.name || item.title || 'Item'}</span>
                       <span className="text-sm text-gray-600">x{item.quantity || 1}</span>
