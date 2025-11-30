@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useInventory } from '../context/inventory-context.jsx';
 import { Button } from '../components/ui/button.jsx';
 import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription } from '../components/ui/dialog.jsx';
@@ -223,6 +223,8 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
   const [isMobileView, setIsMobileView] = useState(false);
   const [selectedOrderForModal, setSelectedOrderForModal] = useState(null);
   const [isOrderDialogOpen, setIsOrderDialogOpen] = useState(false);
+  const [packingFeesByOrder, setPackingFeesByOrder] = useState({});
+  const packingFeesFetchedRef = useRef(false);
 
   useEffect(() => {
     const check = () => setIsMobileView(typeof window !== 'undefined' && window.innerWidth < 640);
@@ -338,6 +340,9 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
     return o.status === activeTab;
   });
 
+  // Fetch packing fee totals for non-pending orders (batch). Runs once per page load.
+  
+
   const range = getRangeStartEnd();
   const filteredOrders = filteredByStatus.filter(order => {
     // Date filter
@@ -357,6 +362,36 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
     }
     return true;
   });
+
+  // Fetch packing fee totals for non-pending orders (batch). Runs once per page load.
+  useEffect(() => {
+    if (packingFeesFetchedRef.current) return;
+    const idsToFetch = (filteredOrders || []).filter(o => String(o.status || '').toLowerCase() !== 'pending' && packingFeesByOrder[o.id] === undefined).map(o => o.id);
+    if (!idsToFetch || idsToFetch.length === 0) {
+      packingFeesFetchedRef.current = true;
+      return;
+    }
+    (async () => {
+      try {
+        const q = idsToFetch.join(',');
+        const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
+        const apiBase = isLocalDev ? 'https://forwokbackend-1.onrender.com' : '';
+        const res = await fetch(`${apiBase}/api/packingfees?orderIds=${encodeURIComponent(q)}`, { cache: 'no-store' });
+        if (!res.ok) {
+          packingFeesFetchedRef.current = true;
+          return;
+        }
+        const json = await res.json();
+        if (json && json.map) {
+          setPackingFeesByOrder(prev => ({ ...prev, ...Object.fromEntries(Object.entries(json.map).map(([k, v]) => [k, Number(v.totalPackingFee)])) }));
+        }
+      } catch (e) {
+        // ignore
+      } finally {
+        packingFeesFetchedRef.current = true;
+      }
+    })();
+  }, [filteredOrders]);
 
   // Multi-select helpers for merchant panel
   const toggleSelect = (id) => {
@@ -609,6 +644,37 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
     setEditDeliveryPartner(order.deliveryPartner || '');
     setEditItems((order.items || []).map(it => ({ productId: it.productId, quantity: it.quantity })));
     setIsEditOpen(true);
+  };
+
+  // Open order details dialog (used for both mobile and desktop)
+  const openOrderDetails = (order) => {
+    setSelectedOrderForModal(order);
+    setIsOrderDialogOpen(true);
+
+    // Try to fetch server-side PackingFee doc for authoritative values
+    (async () => {
+      try {
+        const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
+        const apiBase = isLocalDev ? 'https://forwokbackend-1.onrender.com' : '';
+        const res = await fetch(`${apiBase}/api/packingfees/${encodeURIComponent(order.id)}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!json) return;
+        // Merge authoritative fields into modal state (do not overwrite unrelated fields)
+        setSelectedOrderForModal(prev => ({
+          ...(prev || {}),
+          // packing fee doc fields (if present)
+          boxFee: json.boxFee !== undefined ? json.boxFee : prev?.boxFee,
+          boxCutting: json.boxCutting !== undefined ? json.boxCutting : prev?.boxCutting,
+          trackingFee: json.trackingFee !== undefined ? json.trackingFee : prev?.trackingFee,
+          totalPackingFee: json.totalPackingFee !== undefined ? json.totalPackingFee : prev?.totalPackingFee,
+          totalWeightKg: json.totalWeightKg !== undefined ? json.totalWeightKg : prev?.totalWeightKg,
+          packingDetails: json.items && Array.isArray(json.items) ? json.items : prev?.packingDetails,
+        }));
+      } catch (e) {
+        // ignore fetch errors — dialog will still show client-calculated values
+      }
+    })();
   };
 
   const handleEditItemChange = (index, field, value) => {
@@ -969,11 +1035,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                             <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
                           </TableCell>
                           <TableCell>
-                            {isMobileView ? (
-                              <button className="text-blue-600 underline" onClick={() => { setSelectedOrderForModal(order); setIsOrderDialogOpen(true); }}>{order.id}</button>
-                            ) : (
-                              order.id
-                            )}
+                            <button className="text-blue-600 underline" onClick={() => openOrderDetails(order)}>{order.id}</button>
                           </TableCell>
                         <TableCell>{order.customerName}</TableCell>
                         <TableCell>{order.date}{order.time ? ` ${order.time}` : ''}</TableCell>
@@ -1037,7 +1099,19 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                           ? order.totalWeightKg
                           : (order.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0)
                         ).toFixed(3)}</TableCell>
-                        <TableCell className="hidden sm:table-cell">₹{packingFee.toFixed(2)}</TableCell>
+                        <TableCell className="hidden sm:table-cell">{
+                          String(order.status || '').toLowerCase() === 'pending'
+                            ? 'packing fee pending'
+                            : (() => {
+                                const backendValue = packingFeesByOrder[order.id];
+                                if (backendValue !== undefined && backendValue !== null) return `₹${Number(backendValue).toFixed(2)}`;
+                                const serverVal = (order.totalPackingFee !== undefined && order.totalPackingFee !== null)
+                                  ? Number(order.totalPackingFee)
+                                  : (order.packingFee !== undefined && order.packingFee !== null ? Number(order.packingFee) : null);
+                                if (serverVal !== null) return `₹${Number(serverVal).toFixed(2)}`;
+                                return `₹${(isFinite(packingFee) ? packingFee : 0).toFixed(2)}`;
+                              })()
+                        }</TableCell>
                         <TableCell className="hidden sm:table-cell">
                           <StatusTimelineDropdown order={order} isExpanded={expandedOrderIds.has(`status-${order.id}`)} onToggle={() => toggleExpandOrder(`status-${order.id}`)} />
                         </TableCell>
@@ -1104,11 +1178,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                           <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
                         </TableCell>
                         <TableCell>
-                          {isMobileView ? (
-                            <button className="text-blue-600 underline" onClick={() => { setSelectedOrderForModal(order); setIsOrderDialogOpen(true); }}>{order.id}</button>
-                          ) : (
-                            order.id
-                          )}
+                          <button className="text-blue-600 underline" onClick={() => openOrderDetails(order)}>{order.id}</button>
                         </TableCell>
                         <TableCell>{order.customerName}</TableCell>
                         <TableCell className="hidden sm:table-cell">{order.items.map(item => item.name).join(', ')}</TableCell>
@@ -1117,7 +1187,19 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                           ? order.totalWeightKg
                           : (order.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0)
                         ).toFixed(3)}</TableCell>
-                        <TableCell className="hidden sm:table-cell">₹{packingFee.toFixed(2)}</TableCell>
+                        <TableCell className="hidden sm:table-cell">{
+                          String(order.status || '').toLowerCase() === 'pending'
+                            ? 'packing fee pending'
+                            : (() => {
+                                const backendValue = packingFeesByOrder[order.id];
+                                if (backendValue !== undefined && backendValue !== null) return `₹${Number(backendValue).toFixed(2)}`;
+                                const serverVal = (order.totalPackingFee !== undefined && order.totalPackingFee !== null)
+                                  ? Number(order.totalPackingFee)
+                                  : (order.packingFee !== undefined && order.packingFee !== null ? Number(order.packingFee) : null);
+                                if (serverVal !== null) return `₹${Number(serverVal).toFixed(2)}`;
+                                return `₹${(isFinite(packingFee) ? packingFee : 0).toFixed(2)}`;
+                              })()
+                        }</TableCell>
                         <TableCell className="hidden sm:table-cell">
                           <StatusTimelineDropdown order={order} isExpanded={expandedOrderIds.has(`status-${order.id}`)} onToggle={() => toggleExpandOrder(`status-${order.id}`)} />
                         </TableCell>
@@ -1182,11 +1264,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                           <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
                         </TableCell>
                         <TableCell>
-                          {isMobileView ? (
-                            <button className="text-blue-600 underline" onClick={() => { setSelectedOrderForModal(order); setIsOrderDialogOpen(true); }}>{order.id}</button>
-                          ) : (
-                            order.id
-                          )}
+                          <button className="text-blue-600 underline" onClick={() => openOrderDetails(order)}>{order.id}</button>
                         </TableCell>
                         <TableCell>{order.customerName}</TableCell>
                         <TableCell className="hidden sm:table-cell">{order.items.map(item => item.name).join(', ')}</TableCell>
@@ -1195,7 +1273,19 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                           ? order.totalWeightKg
                           : (order.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0)
                         ).toFixed(3)}</TableCell>
-                        <TableCell className="hidden sm:table-cell">₹{packingFee.toFixed(2)}</TableCell>
+                        <TableCell className="hidden sm:table-cell">{
+                          String(order.status || '').toLowerCase() === 'pending'
+                            ? 'packing fee pending'
+                            : (() => {
+                                const backendValue = packingFeesByOrder[order.id];
+                                if (backendValue !== undefined && backendValue !== null) return `₹${Number(backendValue).toFixed(2)}`;
+                                const serverVal = (order.totalPackingFee !== undefined && order.totalPackingFee !== null)
+                                  ? Number(order.totalPackingFee)
+                                  : (order.packingFee !== undefined && order.packingFee !== null ? Number(order.packingFee) : null);
+                                if (serverVal !== null) return `₹${Number(serverVal).toFixed(2)}`;
+                                return `₹${(isFinite(packingFee) ? packingFee : 0).toFixed(2)}`;
+                              })()
+                        }</TableCell>
                         <TableCell className="hidden sm:table-cell">
                           <StatusTimelineDropdown order={order} isExpanded={expandedOrderIds.has(`status-${order.id}`)} onToggle={() => toggleExpandOrder(`status-${order.id}`)} />
                         </TableCell>
@@ -1262,11 +1352,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                           <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
                         </TableCell>
                         <TableCell>
-                          {isMobileView ? (
-                            <button className="text-blue-600 underline" onClick={() => { setSelectedOrderForModal(order); setIsOrderDialogOpen(true); }}>{order.id}</button>
-                          ) : (
-                            order.id
-                          )}
+                          <button className="text-blue-600 underline" onClick={() => openOrderDetails(order)}>{order.id}</button>
                         </TableCell>
                         <TableCell>{order.customerName}</TableCell>
                         <TableCell>{order.items.map(item => item.name).join(', ')}</TableCell>
@@ -1275,7 +1361,19 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                           ? order.totalWeightKg
                           : (order.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0)
                         ).toFixed(3)}</TableCell>
-                        <TableCell>₹{packingFee.toFixed(2)}</TableCell>
+                        <TableCell>{
+                          String(order.status || '').toLowerCase() === 'pending'
+                            ? 'packing fee pending'
+                            : (() => {
+                                const backendValue = packingFeesByOrder[order.id];
+                                if (backendValue !== undefined && backendValue !== null) return `₹${Number(backendValue).toFixed(2)}`;
+                                const serverVal = (order.totalPackingFee !== undefined && order.totalPackingFee !== null)
+                                  ? Number(order.totalPackingFee)
+                                  : (order.packingFee !== undefined && order.packingFee !== null ? Number(order.packingFee) : null);
+                                if (serverVal !== null) return `₹${Number(serverVal).toFixed(2)}`;
+                                return `₹${(isFinite(packingFee) ? packingFee : 0).toFixed(2)}`;
+                              })()
+                        }</TableCell>
                         <TableCell>
                           <StatusTimelineDropdown order={order} isExpanded={expandedOrderIds.has(`status-${order.id}`)} onToggle={() => toggleExpandOrder(`status-${order.id}`)} />
                         </TableCell>
@@ -1555,6 +1653,90 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       <div className="text-sm">x{it.quantity}</div>
                     </div>
                   ))}
+                </div>
+              </div>
+              <div>
+                <div className="font-medium">Price Breakup</div>
+                <div className="text-gray-700">
+                  {/* Desktop table */}
+                  <div className="hidden sm:block mt-2">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left">
+                          <th>Item</th>
+                          <th>Qty</th>
+                          <th className="text-right">Packing</th>
+                          <th className="text-right">Transport</th>
+                          <th className="text-right">Warehousing</th>
+                          <th className="text-right">Line Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(selectedOrderForModal.items || []).map((it, idx) => {
+                          const prod = products.find(p => p.id === it.productId) || {};
+                          const comps = calculatePerItemComponents(prod);
+                          const per = (comps.packing || 0) + (comps.transportation || 0) + (comps.warehousing || 0);
+                          const lineTotal = per * (it.quantity || 0);
+                          return (
+                            <tr key={idx} className="border-t">
+                              <td className="py-1">{it.name}</td>
+                              <td className="py-1">{it.quantity}</td>
+                              <td className="py-1 text-right">₹{(comps.packing || 0).toFixed(2)}</td>
+                              <td className="py-1 text-right">₹{(comps.transportation || 0).toFixed(2)}</td>
+                              <td className="py-1 text-right">₹{(comps.warehousing || 0).toFixed(2)}</td>
+                              <td className="py-1 text-right">₹{lineTotal.toFixed(2)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Mobile stacked cards */}
+                  <div className="sm:hidden mt-2 space-y-2">
+                    {(selectedOrderForModal.items || []).map((it, idx) => {
+                      const prod = products.find(p => p.id === it.productId) || {};
+                      const comps = calculatePerItemComponents(prod);
+                      const per = (comps.packing || 0) + (comps.transportation || 0) + (comps.warehousing || 0);
+                      const lineTotal = per * (it.quantity || 0);
+                      return (
+                        <div key={idx} className="border rounded p-2">
+                          <div className="flex justify-between"><div className="font-medium">{it.name}</div><div>x{it.quantity}</div></div>
+                          <div className="flex justify-between text-sm"><div>Packing</div><div>₹{(comps.packing || 0).toFixed(2)}</div></div>
+                          <div className="flex justify-between text-sm"><div>Transport</div><div>₹{(comps.transportation || 0).toFixed(2)}</div></div>
+                          <div className="flex justify-between text-sm"><div>Warehousing</div><div>₹{(comps.warehousing || 0).toFixed(2)}</div></div>
+                          <div className="flex justify-between text-sm font-semibold mt-1"><div>Line Total</div><div>₹{lineTotal.toFixed(2)}</div></div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Extras and totals */}
+                  <div className="mt-3 border-t pt-2">
+                    <div className="flex justify-between"><div>Box Fee</div><div>₹{(Number(selectedOrderForModal.boxFee) || 0).toFixed(2)}</div></div>
+                    <div className="flex justify-between"><div>Box Cutting</div><div>₹{(selectedOrderForModal.boxCutting === true ? 2 : (Number(selectedOrderForModal.boxCutting) || 0)).toFixed(2)}</div></div>
+                    <div className="flex justify-between"><div>Tracking Fee</div><div>₹{(selectedOrderForModal.trackingFee !== undefined ? Number(selectedOrderForModal.trackingFee) : 3).toFixed(2)}</div></div>
+                    <div className="flex justify-between font-semibold mt-2">
+                      <div>Total (calc)</div>
+                      <div>₹{(() => {
+                        const itemsTotal = (selectedOrderForModal.items || []).reduce((s, it) => {
+                          const prod = products.find(p => p.id === it.productId) || {};
+                          const c = calculatePerItemComponents(prod);
+                          const per = (c.packing || 0) + (c.transportation || 0) + (c.warehousing || 0);
+                          return s + per * (it.quantity || 0);
+                        }, 0);
+                        const box = Number(selectedOrderForModal.boxFee) || 0;
+                        const cutting = selectedOrderForModal.boxCutting === true ? 2 : (Number(selectedOrderForModal.boxCutting) || 0);
+                        const track = selectedOrderForModal.trackingFee !== undefined ? Number(selectedOrderForModal.trackingFee) : 3;
+                        return (itemsTotal + box + cutting + track).toFixed(2);
+                      })()}</div>
+                    </div>
+                    {selectedOrderForModal.totalPackingFee !== undefined && selectedOrderForModal.totalPackingFee !== null && (
+                      <div className="flex justify-between text-sm text-gray-700 mt-1">
+                        <div>Server total</div>
+                        <div>₹{Number(selectedOrderForModal.totalPackingFee).toFixed(2)}</div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
