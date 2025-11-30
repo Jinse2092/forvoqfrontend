@@ -271,7 +271,16 @@ const AdminOrders = () => {
         }
         const json = await res.json();
         if (json && json.map) {
-          setPackingFeesByOrder(prev => ({ ...prev, ...Object.fromEntries(Object.entries(json.map).map(([k, v]) => [k, Number(v.totalPackingFee)])) }));
+          // Store the full packing fee object for each order (coerce numeric fields)
+          const normalized = Object.fromEntries(Object.entries(json.map).map(([k, v]) => [k, {
+            totalPackingFee: v.totalPackingFee !== undefined ? Number(v.totalPackingFee) : undefined,
+            boxFee: v.boxFee !== undefined ? Number(v.boxFee) : 0,
+            boxCutting: v.boxCutting !== undefined ? Boolean(v.boxCutting) : false,
+            trackingFee: v.trackingFee !== undefined ? Number(v.trackingFee) : 3,
+            totalWeightKg: v.totalWeightKg !== undefined ? Number(v.totalWeightKg) : undefined,
+            raw: v
+          }]));
+          setPackingFeesByOrder(prev => ({ ...prev, ...normalized }));
         }
       } catch (e) {
         // ignore fetch errors
@@ -772,8 +781,9 @@ const openMarkItemsDialog = (order) => {
     const initialBoxCuttings = {};
     ordersToUpdate.forEach((order) => {
       initialWeights[order.id] = order.packedweight ?? order.totalWeightKg ?? '';
-      initialBoxFees[order.id] = order.boxFee !== undefined ? String(order.boxFee) : '';
-      initialBoxCuttings[order.id] = order.boxCutting === true;
+      const pf = packingFeesByOrder && packingFeesByOrder[order.id] ? packingFeesByOrder[order.id] : null;
+      initialBoxFees[order.id] = pf && pf.boxFee !== undefined ? String(pf.boxFee) : (order.boxFee !== undefined ? String(order.boxFee) : '');
+      initialBoxCuttings[order.id] = pf && pf.boxCutting !== undefined ? Boolean(pf.boxCutting) : (order.boxCutting === true);
     });
 
     setOrdersForWeightUpdate(ordersToUpdate);
@@ -870,8 +880,9 @@ const openMarkItemsDialog = (order) => {
       const results = await Promise.all(ordersForWeightUpdate.map(async (order) => {
         const w = parseFloat(weights[order.id]) || 0;
         // Box fee and cutting
-        const boxFeeVal = boxFees[order.id] !== undefined ? parseFloat(boxFees[order.id]) || 0 : (order.boxFee !== undefined ? Number(order.boxFee) : 0);
-        const boxCuttingVal = boxCuttings[order.id] !== undefined ? Boolean(boxCuttings[order.id]) : Boolean(order.boxCutting);
+        const pf = packingFeesByOrder && packingFeesByOrder[order.id] ? packingFeesByOrder[order.id] : null;
+        const boxFeeVal = boxFees[order.id] !== undefined ? parseFloat(boxFees[order.id]) || 0 : (pf && pf.boxFee !== undefined ? Number(pf.boxFee) : (order.boxFee !== undefined ? Number(order.boxFee) : 0));
+        const boxCuttingVal = boxCuttings[order.id] !== undefined ? Boolean(boxCuttings[order.id]) : (pf && pf.boxCutting !== undefined ? Boolean(pf.boxCutting) : Boolean(order.boxCutting));
 
         // Calculate per-order extra: boxFee + (boxCutting ? 2 : 0) + tracking fee (₹2)
         const trackingFee = 3; // fixed tracking fee as requested
@@ -925,6 +936,23 @@ const openMarkItemsDialog = (order) => {
   const openOrderDetails = (order) => {
     // show current order first, then try to fetch authoritative server copy
     setOrderDetails(order);
+    // If we already have a batch-fetched PackingFee object, merge it immediately for quicker display
+    try {
+      const pf = packingFeesByOrder && packingFeesByOrder[order.id] ? packingFeesByOrder[order.id] : null;
+      if (pf) {
+        setOrderDetails(prev => ({
+          ...(prev || {}),
+          boxFee: pf.boxFee !== undefined ? pf.boxFee : prev?.boxFee,
+          boxCutting: pf.boxCutting !== undefined ? pf.boxCutting : prev?.boxCutting,
+          trackingFee: pf.trackingFee !== undefined ? pf.trackingFee : prev?.trackingFee,
+          totalPackingFee: pf.totalPackingFee !== undefined ? pf.totalPackingFee : prev?.totalPackingFee,
+          totalWeightKg: pf.totalWeightKg !== undefined ? pf.totalWeightKg : prev?.totalWeightKg,
+          packingDetails: pf.items && Array.isArray(pf.items) ? pf.items : prev?.packingDetails,
+        }));
+      }
+    } catch (e) {
+      // noop
+    }
     setIsOrderDetailsDialogOpen(true);
     (async () => {
       try {
@@ -1395,7 +1423,7 @@ const openMarkItemsDialog = (order) => {
                     id={`boxFee-${order.id}`}
                     type="number"
                     step="0.01"
-                    value={boxFees[order.id] ?? (order.boxFee !== undefined ? String(order.boxFee) : '')}
+                    value={boxFees[order.id] ?? (packingFeesByOrder && packingFeesByOrder[order.id] && packingFeesByOrder[order.id].boxFee !== undefined ? String(packingFeesByOrder[order.id].boxFee) : (order.boxFee !== undefined ? String(order.boxFee) : ''))}
                     onChange={(e) => setBoxFees((prev) => ({ ...prev, [order.id]: e.target.value }))}
                     placeholder="e.g. 10.00"
                     className="w-32"
@@ -1404,7 +1432,7 @@ const openMarkItemsDialog = (order) => {
                     <input
                       id={`boxCutting-${order.id}`}
                       type="checkbox"
-                      checked={boxCuttings[order.id] ?? Boolean(order.boxCutting)}
+                      checked={boxCuttings[order.id] ?? (packingFeesByOrder && packingFeesByOrder[order.id] && packingFeesByOrder[order.id].boxCutting !== undefined ? Boolean(packingFeesByOrder[order.id].boxCutting) : Boolean(order.boxCutting))}
                       onChange={(e) => setBoxCuttings((prev) => ({ ...prev, [order.id]: e.target.checked }))}
                     />
                     <span className="text-sm">Box Cutting (+₹2)</span>
@@ -1478,7 +1506,8 @@ const openMarkItemsDialog = (order) => {
                   // fallback to batch fetched packing fees map (if this dialog was opened after batch fetch)
                   const backendMapVal = orderDetails && packingFeesByOrder[orderDetails.id];
                   if (backendMapVal !== undefined && backendMapVal !== null) {
-                    return `₹${Number(backendMapVal).toFixed(2)}`;
+                    const backendTotal = (backendMapVal && backendMapVal.totalPackingFee !== undefined) ? backendMapVal.totalPackingFee : (typeof backendMapVal === 'number' ? backendMapVal : undefined);
+                    if (backendTotal !== undefined && backendTotal !== null) return `₹${Number(backendTotal).toFixed(2)}`;
                   }
                   // final fallback: compute client-side from product metadata
                   return computePackingFee(orderDetails);
@@ -1802,7 +1831,8 @@ const openMarkItemsDialog = (order) => {
                               // Prefer backend `totalPackingFee` from packingfees collection when available
                               const backendValue = packingFeesByOrder[order.id];
                               if (backendValue !== undefined && backendValue !== null) {
-                                return `₹${Number(backendValue).toFixed(2)}`;
+                                const backendTotal = (backendValue && backendValue.totalPackingFee !== undefined) ? backendValue.totalPackingFee : (typeof backendValue === 'number' ? backendValue : undefined);
+                                if (backendTotal !== undefined && backendTotal !== null) return `₹${Number(backendTotal).toFixed(2)}`;
                               }
                               const orderHasPacking = (order.packingFee !== undefined && order.packingFee !== null && order.packingFee !== '');
                               const amount = orderHasPacking ? Number(order.packingFee) : Number(computedPackingFee || 0);

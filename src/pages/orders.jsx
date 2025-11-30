@@ -383,7 +383,15 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         }
         const json = await res.json();
         if (json && json.map) {
-          setPackingFeesByOrder(prev => ({ ...prev, ...Object.fromEntries(Object.entries(json.map).map(([k, v]) => [k, Number(v.totalPackingFee)])) }));
+          const normalized = Object.fromEntries(Object.entries(json.map).map(([k, v]) => [k, {
+            totalPackingFee: v.totalPackingFee !== undefined ? Number(v.totalPackingFee) : undefined,
+            boxFee: v.boxFee !== undefined ? Number(v.boxFee) : 0,
+            boxCutting: v.boxCutting !== undefined ? Boolean(v.boxCutting) : false,
+            trackingFee: v.trackingFee !== undefined ? Number(v.trackingFee) : 3,
+            totalWeightKg: v.totalWeightKg !== undefined ? Number(v.totalWeightKg) : undefined,
+            raw: v
+          }]));
+          setPackingFeesByOrder(prev => ({ ...prev, ...normalized }));
         }
       } catch (e) {
         // ignore
@@ -650,6 +658,24 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
   const openOrderDetails = (order) => {
     setSelectedOrderForModal(order);
     setIsOrderDialogOpen(true);
+
+    // If we already have a batch-fetched PackingFee object, merge it immediately for quicker display
+    try {
+      const pf = packingFeesByOrder && packingFeesByOrder[order.id] ? packingFeesByOrder[order.id] : null;
+      if (pf) {
+        setSelectedOrderForModal(prev => ({
+          ...(prev || {}),
+          boxFee: pf.boxFee !== undefined ? pf.boxFee : prev?.boxFee,
+          boxCutting: pf.boxCutting !== undefined ? pf.boxCutting : prev?.boxCutting,
+          trackingFee: pf.trackingFee !== undefined ? pf.trackingFee : prev?.trackingFee,
+          totalPackingFee: pf.totalPackingFee !== undefined ? pf.totalPackingFee : prev?.totalPackingFee,
+          totalWeightKg: pf.totalWeightKg !== undefined ? pf.totalWeightKg : prev?.totalWeightKg,
+          packingDetails: pf.items && Array.isArray(pf.items) ? pf.items : prev?.packingDetails,
+        }));
+      }
+    } catch (e) {
+      // noop
+    }
 
     // Try to fetch server-side PackingFee doc for authoritative values
     (async () => {
@@ -1104,7 +1130,10 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                             ? 'packing fee pending'
                             : (() => {
                                 const backendValue = packingFeesByOrder[order.id];
-                                if (backendValue !== undefined && backendValue !== null) return `₹${Number(backendValue).toFixed(2)}`;
+                                if (backendValue !== undefined && backendValue !== null) {
+                                  const backendTotal = (backendValue && backendValue.totalPackingFee !== undefined) ? backendValue.totalPackingFee : (typeof backendValue === 'number' ? backendValue : undefined);
+                                  if (backendTotal !== undefined && backendTotal !== null) return `₹${Number(backendTotal).toFixed(2)}`;
+                                }
                                 const serverVal = (order.totalPackingFee !== undefined && order.totalPackingFee !== null)
                                   ? Number(order.totalPackingFee)
                                   : (order.packingFee !== undefined && order.packingFee !== null ? Number(order.packingFee) : null);
@@ -1192,7 +1221,10 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                             ? 'packing fee pending'
                             : (() => {
                                 const backendValue = packingFeesByOrder[order.id];
-                                if (backendValue !== undefined && backendValue !== null) return `₹${Number(backendValue).toFixed(2)}`;
+                                if (backendValue !== undefined && backendValue !== null) {
+                                  const backendTotal = (backendValue && backendValue.totalPackingFee !== undefined) ? backendValue.totalPackingFee : (typeof backendValue === 'number' ? backendValue : undefined);
+                                  if (backendTotal !== undefined && backendTotal !== null) return `₹${Number(backendTotal).toFixed(2)}`;
+                                }
                                 const serverVal = (order.totalPackingFee !== undefined && order.totalPackingFee !== null)
                                   ? Number(order.totalPackingFee)
                                   : (order.packingFee !== undefined && order.packingFee !== null ? Number(order.packingFee) : null);
@@ -1278,7 +1310,10 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                             ? 'packing fee pending'
                             : (() => {
                                 const backendValue = packingFeesByOrder[order.id];
-                                if (backendValue !== undefined && backendValue !== null) return `₹${Number(backendValue).toFixed(2)}`;
+                                if (backendValue !== undefined && backendValue !== null) {
+                                  const backendTotal = (backendValue && backendValue.totalPackingFee !== undefined) ? backendValue.totalPackingFee : (typeof backendValue === 'number' ? backendValue : undefined);
+                                  if (backendTotal !== undefined && backendTotal !== null) return `₹${Number(backendTotal).toFixed(2)}`;
+                                }
                                 const serverVal = (order.totalPackingFee !== undefined && order.totalPackingFee !== null)
                                   ? Number(order.totalPackingFee)
                                   : (order.packingFee !== undefined && order.packingFee !== null ? Number(order.packingFee) : null);
@@ -1366,7 +1401,10 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                             ? 'packing fee pending'
                             : (() => {
                                 const backendValue = packingFeesByOrder[order.id];
-                                if (backendValue !== undefined && backendValue !== null) return `₹${Number(backendValue).toFixed(2)}`;
+                                if (backendValue !== undefined && backendValue !== null) {
+                                  const backendTotal = (backendValue && backendValue.totalPackingFee !== undefined) ? backendValue.totalPackingFee : (typeof backendValue === 'number' ? backendValue : undefined);
+                                  if (backendTotal !== undefined && backendTotal !== null) return `₹${Number(backendTotal).toFixed(2)}`;
+                                }
                                 const serverVal = (order.totalPackingFee !== undefined && order.totalPackingFee !== null)
                                   ? Number(order.totalPackingFee)
                                   : (order.packingFee !== undefined && order.packingFee !== null ? Number(order.packingFee) : null);
