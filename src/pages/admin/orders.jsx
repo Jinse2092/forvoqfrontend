@@ -264,7 +264,7 @@ const AdminOrders = () => {
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
         const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
           ? import.meta.env.VITE_API_BASE
-          : (isLocalDev ? 'http://localhost:4000' : 'https://forwokbackend-1.onrender.com');
+          : (isLocalDev ? 'https://forwokbackend-1.onrender.com' : 'https://forwokbackend-1.onrender.com');
         const url = `${apiBase}/api/packingfees?orderIds=${encodeURIComponent(q)}`;
         console.log('Admin: fetching packing fees batch from', url);
         const res = await fetch(url, { cache: 'no-store' });
@@ -1119,7 +1119,7 @@ const openMarkItemsDialog = (order) => {
       const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
       const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
         ? import.meta.env.VITE_API_BASE
-        : (isLocalDev ? 'http://localhost:4000' : 'https://forwokbackend-1.onrender.com');
+        : (isLocalDev ? 'https://forwokbackend-1.onrender.com' : 'https://forwokbackend-1.onrender.com');
       const singleUrl = `${apiBase}/api/packingfees/${encodeURIComponent(orderId)}`;
       console.log('Admin: fetching packing fee for order', orderId, 'from', singleUrl);
       const res = await fetch(singleUrl, { cache: 'no-store' });
