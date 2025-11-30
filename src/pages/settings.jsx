@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
 import { useInventory } from '../context/inventory-context.jsx';
+import BackupRestore from '@/components/admin/BackupRestore.jsx';
 
 const Settings = () => {
   const { theme, setTheme } = useTheme();
@@ -413,6 +414,18 @@ const Settings = () => {
            </div>
         </CardContent>
       </Card>
+
+      {currentUser && currentUser.role === 'superadmin' ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Admin Backups</CardTitle>
+            <CardDescription>Super admin: create backups and restore data (Google Drive upload supported).</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BackupRestore currentUser={currentUser} />
+          </CardContent>
+        </Card>
+      ) : null}
 
        <Card>
         <CardHeader>
