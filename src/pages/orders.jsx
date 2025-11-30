@@ -375,22 +375,41 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
       try {
         const q = idsToFetch.join(',');
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
-        const apiBase = isLocalDev ? 'https://forwokbackend-1.onrender.com' : '';
-        const res = await fetch(`${apiBase}/api/packingfees?orderIds=${encodeURIComponent(q)}`, { cache: 'no-store' });
+        const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE) ? import.meta.env.VITE_API_BASE : (isLocalDev ? 'https://forwokbackend-1.onrender.com' : '');
+        const url = `${apiBase}/api/packingfees?orderIds=${encodeURIComponent(q)}`;
+        console.log('Merchant: fetching packing fees batch from', url);
+        const res = await fetch(url, { cache: 'no-store' });
         if (!res.ok) {
           packingFeesFetchedRef.current = true;
           return;
         }
         const json = await res.json();
+        console.log('Merchant: packing fees batch response', json);
         if (json && json.map) {
-          const normalized = Object.fromEntries(Object.entries(json.map).map(([k, v]) => [k, {
-            totalPackingFee: v.totalPackingFee !== undefined ? Number(v.totalPackingFee) : undefined,
-            boxFee: v.boxFee !== undefined ? Number(v.boxFee) : 0,
-            boxCutting: v.boxCutting !== undefined ? Boolean(v.boxCutting) : false,
-            trackingFee: v.trackingFee !== undefined ? Number(v.trackingFee) : 3,
-            totalWeightKg: v.totalWeightKg !== undefined ? Number(v.totalWeightKg) : undefined,
-            raw: v
-          }]));
+          const normalized = Object.fromEntries(Object.entries(json.map).map(([k, v]) => {
+            if (typeof v === 'number') {
+              return [k, {
+                totalPackingFee: Number(v),
+                boxFee: 0,
+                boxCutting: false,
+                trackingFee: 3,
+                totalWeightKg: undefined,
+                raw: v
+              }];
+            }
+            const boxFee = Number(v.boxFee ?? v.box_fee ?? 0) || 0;
+            const boxCutting = (v.boxCutting ?? v.box_cutting ?? v.box_cut) ? true : false;
+            const totalPackingFee = v.totalPackingFee !== undefined ? Number(v.totalPackingFee) : (v.total !== undefined ? Number(v.total) : undefined);
+            return [k, {
+              totalPackingFee,
+              boxFee,
+              boxCutting,
+              trackingFee: Number(v.trackingFee ?? v.tracking_fee ?? 3),
+              totalWeightKg: v.totalWeightKg !== undefined ? Number(v.totalWeightKg) : (v.total_weight_kg !== undefined ? Number(v.total_weight_kg) : undefined),
+              items: v.items ?? v.products ?? v.map?.items ?? [],
+              raw: v
+            }];
+          }));
           setPackingFeesByOrder(prev => ({ ...prev, ...normalized }));
         }
       } catch (e) {
@@ -681,10 +700,31 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
     (async () => {
       try {
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
-        const apiBase = isLocalDev ? 'https://forwokbackend-1.onrender.com' : '';
-        const res = await fetch(`${apiBase}/api/packingfees/${encodeURIComponent(order.id)}`, { cache: 'no-store' });
+        const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE) ? import.meta.env.VITE_API_BASE : (isLocalDev ? 'https://forwokbackend-1.onrender.com' : '');
+        const singleUrl = `${apiBase}/api/packingfees/${encodeURIComponent(order.id)}`;
+        console.log('Merchant: fetching packing fee for order', order.id, 'from', singleUrl);
+        const res = await fetch(singleUrl, { cache: 'no-store' });
         if (!res.ok) return;
         const json = await res.json();
+        console.log('Merchant: packing fee single response for', order.id, json);
+        // Normalize single response into consistent shape
+        let pf = null;
+        if (!json) pf = null;
+        else if (json.packingFee) pf = json.packingFee;
+        else if (json.packingfee) pf = json.packingfee;
+        else if (typeof json === 'number') pf = { totalPackingFee: Number(json) };
+        else pf = json;
+        if (pf) {
+          setSelectedOrderForModal(prev => ({
+            ...(prev || {}),
+            boxFee: pf.boxFee !== undefined ? pf.boxFee : prev?.boxFee,
+            boxCutting: pf.boxCutting !== undefined ? pf.boxCutting : prev?.boxCutting,
+            trackingFee: pf.trackingFee !== undefined ? pf.trackingFee : prev?.trackingFee,
+            totalPackingFee: pf.totalPackingFee !== undefined ? pf.totalPackingFee : prev?.totalPackingFee,
+            totalWeightKg: pf.totalWeightKg !== undefined ? pf.totalWeightKg : prev?.totalWeightKg,
+            packingDetails: pf.items && Array.isArray(pf.items) ? pf.items : prev?.packingDetails,
+          }));
+        }
         if (!json) return;
         // Merge authoritative fields into modal state (do not overwrite unrelated fields)
         setSelectedOrderForModal(prev => ({

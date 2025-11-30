@@ -262,24 +262,43 @@ const AdminOrders = () => {
         // Prefer relative API path, but when running the Vite dev server it may return cached 304s
         // so fall back to calling the backend directly on port 4000 in dev.
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
-        const apiBase = isLocalDev ? 'https://forwokbackend-1.onrender.com' : '';
+        const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE) ? import.meta.env.VITE_API_BASE : (isLocalDev ? 'https://forwokbackend-1.onrender.com' : '');
         const url = `${apiBase}/api/packingfees?orderIds=${encodeURIComponent(q)}`;
+        console.log('Admin: fetching packing fees batch from', url);
         const res = await fetch(url, { cache: 'no-store' });
         if (!res.ok) {
           packingFeesFetchedRef.current = true;
           return;
         }
         const json = await res.json();
+        console.log('Admin: packing fees batch response', json);
         if (json && json.map) {
           // Store the full packing fee object for each order (coerce numeric fields)
-          const normalized = Object.fromEntries(Object.entries(json.map).map(([k, v]) => [k, {
-            totalPackingFee: v.totalPackingFee !== undefined ? Number(v.totalPackingFee) : undefined,
-            boxFee: v.boxFee !== undefined ? Number(v.boxFee) : 0,
-            boxCutting: v.boxCutting !== undefined ? Boolean(v.boxCutting) : false,
-            trackingFee: v.trackingFee !== undefined ? Number(v.trackingFee) : 3,
-            totalWeightKg: v.totalWeightKg !== undefined ? Number(v.totalWeightKg) : undefined,
-            raw: v
-          }]));
+          const normalized = Object.fromEntries(Object.entries(json.map).map(([k, v]) => {
+            // handle numeric shortcut (v can be a number)
+            if (typeof v === 'number') {
+              return [k, {
+                totalPackingFee: Number(v),
+                boxFee: 0,
+                boxCutting: false,
+                trackingFee: 3,
+                totalWeightKg: undefined,
+                raw: v
+              }];
+            }
+            const boxFee = Number(v.boxFee ?? v.box_fee ?? 0) || 0;
+            const boxCutting = (v.boxCutting ?? v.box_cutting ?? v.box_cut) ? true : false;
+            const totalPackingFee = v.totalPackingFee !== undefined ? Number(v.totalPackingFee) : (v.total !== undefined ? Number(v.total) : undefined);
+            return [k, {
+              totalPackingFee,
+              boxFee,
+              boxCutting,
+              trackingFee: Number(v.trackingFee ?? v.tracking_fee ?? 3),
+              totalWeightKg: v.totalWeightKg !== undefined ? Number(v.totalWeightKg) : (v.total_weight_kg !== undefined ? Number(v.total_weight_kg) : undefined),
+              items: v.items ?? v.products ?? v.map?.items ?? [],
+              raw: v
+            }];
+          }));
           setPackingFeesByOrder(prev => ({ ...prev, ...normalized }));
         }
       } catch (e) {
@@ -1097,16 +1116,33 @@ const openMarkItemsDialog = (order) => {
     try {
       const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
       const apiBase = isLocalDev ? 'https://forwokbackend-1.onrender.com' : '';
-      const res = await fetch(`${apiBase}/api/packingfees/${encodeURIComponent(orderId)}`, { cache: 'no-store' });
+      const singleUrl = `${apiBase}/api/packingfees/${encodeURIComponent(orderId)}`;
+      console.log('Admin: fetching packing fee for order', orderId, 'from', singleUrl);
+      const res = await fetch(singleUrl, { cache: 'no-store' });
       if (!res.ok) {
         const txt = await res.text().catch(() => '');
         throw new Error(`Failed to fetch packingfee ${orderId}: ${res.status} ${res.statusText} ${txt}`);
       }
       const body = await res.json();
-      // API returns { packingFee: { ... } } or the doc directly depending on server implementation
+      console.log('Admin: packing fee single response for', orderId, body);
+      // Normalize various possible shapes into a consistent object
       if (!body) return null;
-      if (body.packingFee) return body.packingFee;
-      return body;
+      let pf = null;
+      if (body.packingFee) pf = body.packingFee;
+      else if (body.packingfee) pf = body.packingfee;
+      else if (body.map && (body.map.items || body.map[orderId])) pf = body.map[orderId] ?? body.map;
+      else if (typeof body === 'number') pf = { totalPackingFee: Number(body) };
+      else pf = body;
+      const normalized = {
+        totalPackingFee: Number(pf.totalPackingFee ?? pf.total ?? 0),
+        boxFee: Number(pf.boxFee ?? pf.box_fee ?? 0) || 0,
+        boxCutting: (pf.boxCutting ?? pf.box_cutting ?? pf.box_cut) ? true : false,
+        trackingFee: Number(pf.trackingFee ?? pf.tracking_fee ?? 3),
+        totalWeightKg: pf.totalWeightKg !== undefined ? Number(pf.totalWeightKg) : (pf.total_weight_kg !== undefined ? Number(pf.total_weight_kg) : undefined),
+        items: pf.items ?? pf.products ?? [],
+        raw: pf
+      };
+      return normalized;
     } catch (err) {
       console.warn('fetchPackingFeeFromServer error', err);
       return null;
