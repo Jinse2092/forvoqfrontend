@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useInventory } from '../../context/inventory-context.jsx';
 import { Button } from '../../components/ui/button.jsx';
 import { useToast } from '../../components/ui/use-toast.js';
@@ -131,6 +131,10 @@ const AdminOrders = () => {
   const [isWeightDialogOpen, setIsWeightDialogOpen] = useState(false);
   const [ordersForWeightUpdate, setOrdersForWeightUpdate] = useState([]);
   const [weights, setWeights] = useState({});
+  const [boxFees, setBoxFees] = useState({});
+  const [boxCuttings, setBoxCuttings] = useState({});
+  const [packingFeesByOrder, setPackingFeesByOrder] = useState({});
+  const packingFeesFetchedRef = useRef(false);
 
   // Dialog state for tracking codes
   const [isTrackingCodeDialogOpen, setIsTrackingCodeDialogOpen] = useState(false);
@@ -139,6 +143,32 @@ const AdminOrders = () => {
   const [trackingCodes, setTrackingCodes] = useState({});
   const [isOrderDetailsDialogOpen, setIsOrderDetailsDialogOpen] = useState(false);
   const [orderDetails, setOrderDetails] = useState(null);
+
+  // Helper to compute per-item total fees from product-level fields
+  const calculatePerItemTotalFee = (prod) => {
+    if (!prod) return 0;
+    const actual = prod.weightKg || 0;
+    const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+    const basePacking = (prod.itemPackingFee !== undefined && prod.itemPackingFee !== null && prod.itemPackingFee !== '')
+      ? Number(prod.itemPackingFee) || 0
+      : (calculateDispatchFee ? calculateDispatchFee(actual, vol, prod.packingType || 'normal packing') : 0);
+    const transportation = Number(prod.transportationFee || 0);
+    const warehousingPerItem = (Number(prod.warehousingRatePerKg || 0)) * (prod.weightKg || actual || 0);
+    return basePacking + transportation + warehousingPerItem;
+  };
+
+  // Helper: return per-item breakdown { packing, transportation, warehousing }
+  const calculatePerItemComponents = (prod) => {
+    if (!prod) return { packing: 0, transportation: 0, warehousing: 0 };
+    const actual = prod.weightKg || 0;
+    const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+    const packing = (prod.itemPackingFee !== undefined && prod.itemPackingFee !== null && prod.itemPackingFee !== '')
+      ? Number(prod.itemPackingFee) || 0
+      : (calculateDispatchFee ? calculateDispatchFee(actual, vol, prod.packingType || 'normal packing') : 0);
+    const transportation = Number(prod.transportationFee || 0);
+    const warehousing = (Number(prod.warehousingRatePerKg || 0)) * (prod.weightKg || actual || 0);
+    return { packing, transportation, warehousing };
+  };
 
   // Add state for newTrackingCode
   const [newTrackingCode, setNewTrackingCode] = useState('');
@@ -217,6 +247,39 @@ const AdminOrders = () => {
     const db = parseDateSafe(b.date) || parseDateSafe(b.createdAt) || new Date(0);
     return db.getTime() - da.getTime();
   });
+
+  // Fetch packing fee totals for all non-pending orders not yet loaded in state (batch)
+  // Only run once per reload — use a ref guard so we don't refetch on state/prop updates
+  useEffect(() => {
+    if (packingFeesFetchedRef.current) return;
+    const idsToFetch = (filteredOrders || [])
+      .filter(o => String(o.status || '').toLowerCase() !== 'pending' && packingFeesByOrder[o.id] === undefined)
+      .map(o => o.id);
+    if (!idsToFetch || idsToFetch.length === 0) return;
+    (async () => {
+      try {
+        const q = idsToFetch.join(',');
+        // Prefer relative API path, but when running the Vite dev server it may return cached 304s
+        // so fall back to calling the backend directly on port 4000 in dev.
+        const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
+        const apiBase = isLocalDev ? 'https://forwokbackend-1.onrender.com' : '';
+        const url = `${apiBase}/api/packingfees?orderIds=${encodeURIComponent(q)}`;
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) {
+          packingFeesFetchedRef.current = true;
+          return;
+        }
+        const json = await res.json();
+        if (json && json.map) {
+          setPackingFeesByOrder(prev => ({ ...prev, ...Object.fromEntries(Object.entries(json.map).map(([k, v]) => [k, Number(v.totalPackingFee)])) }));
+        }
+      } catch (e) {
+        // ignore fetch errors
+      } finally {
+        packingFeesFetchedRef.current = true;
+      }
+    })();
+  }, [filteredOrders]);
 
   const toggleExpandOrder = (orderId) => {
     setExpandedOrderIds(prev => {
@@ -705,12 +768,18 @@ const openMarkItemsDialog = (order) => {
       .filter(Boolean);
 
     const initialWeights = {};
+    const initialBoxFees = {};
+    const initialBoxCuttings = {};
     ordersToUpdate.forEach((order) => {
       initialWeights[order.id] = order.packedweight ?? order.totalWeightKg ?? '';
+      initialBoxFees[order.id] = order.boxFee !== undefined ? String(order.boxFee) : '';
+      initialBoxCuttings[order.id] = order.boxCutting === true;
     });
 
     setOrdersForWeightUpdate(ordersToUpdate);
     setWeights(initialWeights);
+    setBoxFees(initialBoxFees);
+    setBoxCuttings(initialBoxCuttings);
     setIsWeightDialogOpen(true); // Open the weight dialog
 
     // Explicitly ensure tracking code dialog is not opened
@@ -800,9 +869,27 @@ const openMarkItemsDialog = (order) => {
       const now = new Date().toISOString();
       const results = await Promise.all(ordersForWeightUpdate.map(async (order) => {
         const w = parseFloat(weights[order.id]) || 0;
-        // If order has exactly one item, update its item-level weight field as well
+        // Box fee and cutting
+        const boxFeeVal = boxFees[order.id] !== undefined ? parseFloat(boxFees[order.id]) || 0 : (order.boxFee !== undefined ? Number(order.boxFee) : 0);
+        const boxCuttingVal = boxCuttings[order.id] !== undefined ? Boolean(boxCuttings[order.id]) : Boolean(order.boxCutting);
+
+        // Calculate per-order extra: boxFee + (boxCutting ? 2 : 0) + tracking fee (₹2)
+        const trackingFee = 3; // fixed tracking fee as requested
+        const boxTotal = boxFeeVal + (boxCuttingVal ? 2 : 0) + trackingFee;
+
+        // Calculate item-wise packing fee using existing helper
+        const itemsPacking = (order.items || []).reduce((sum, item) => {
+          const prod = products.find(p => p.id === item.productId);
+          if (!prod) return sum;
+          const feePerItem = calculatePerItemTotalFee(prod);
+          return sum + feePerItem * (item.quantity || 0);
+        }, 0);
+
+        const totalPackingFee = itemsPacking + boxTotal;
+
         // Save packed weight explicitly as `packedweight` along with totalWeightKg
-        let updatedFields = { totalWeightKg: w, packedweight: w, status: 'packed', packedAt: now };
+        // Do NOT send client-side packingDetails: server will compute authoritative packing breakdown
+        let updatedFields = { totalWeightKg: w, packedweight: w, status: 'packed', packedAt: now, boxFee: boxFeeVal, boxCutting: boxCuttingVal };
         if (order.items && order.items.length === 1) {
           const item = order.items[0];
           const updatedItem = { ...item, weightKg: w };
@@ -823,6 +910,8 @@ const openMarkItemsDialog = (order) => {
       setSelectedOrderIds([]);
       setOrdersForWeightUpdate([]);
       setWeights({});
+      setBoxFees({});
+      setBoxCuttings({});
       setIsWeightDialogOpen(false);
       // Ensure tracking dialog remains closed
       setIsTrackingCodeDialogOpen(false);
@@ -834,8 +923,60 @@ const openMarkItemsDialog = (order) => {
 
   // Function to open order details dialog
   const openOrderDetails = (order) => {
+    // show current order first, then try to fetch authoritative server copy
     setOrderDetails(order);
     setIsOrderDetailsDialogOpen(true);
+    (async () => {
+      try {
+        const serverOrder = await fetchOrderFromServer(order.id || order._id || order.orderId || order.id);
+        let finalOrder = serverOrder || order;
+        // If serverOrder exists but doesn't include packingDetails, try fetching PackingFee doc
+        if (finalOrder) {
+          const hasPackingDetails = Array.isArray(finalOrder.packingDetails) && finalOrder.packingDetails.length > 0;
+          if (!hasPackingDetails) {
+            const pf = await fetchPackingFeeFromServer(finalOrder.id || finalOrder.orderId || finalOrder._id || order.id);
+            if (pf) {
+              // Determine items: prefer pf.items, else try common alt keys, else compute from order items
+              let itemsFromPf = null;
+              if (Array.isArray(pf.items) && pf.items.length > 0) itemsFromPf = pf.items;
+              if (!itemsFromPf && Array.isArray(pf.products) && pf.products.length > 0) itemsFromPf = pf.products;
+              if (!itemsFromPf && pf.map && Array.isArray(pf.map.items)) itemsFromPf = pf.map.items;
+              // If packing doc lacks item breakdown, compute per-item components client-side from products
+              if (!itemsFromPf || itemsFromPf.length === 0) {
+                itemsFromPf = (finalOrder.items || []).map(it => {
+                  const prod = products.find(p => p.id === it.productId) || {};
+                  const comps = calculatePerItemComponents(prod);
+                  const qty = it.quantity || 1;
+                  const lineTotal = (Number(comps.packing || 0) + Number(comps.transportation || 0) + Number(comps.warehousing || 0)) * qty;
+                  return {
+                    productId: it.productId,
+                    name: it.name || prod.name || 'Item',
+                    quantity: qty,
+                    itemPackingPerItem: comps.packing || 0,
+                    transportationPerItem: comps.transportation || 0,
+                    warehousingPerItem: comps.warehousing || 0,
+                    lineTotal: Number(lineTotal.toFixed(2)),
+                  };
+                });
+              }
+              finalOrder = {
+                ...finalOrder,
+                packingDetails: itemsFromPf || finalOrder.packingDetails || [],
+                boxFee: pf.boxFee !== undefined ? pf.boxFee : finalOrder.boxFee,
+                boxCutting: pf.boxCutting !== undefined ? pf.boxCutting : finalOrder.boxCutting,
+                trackingFee: pf.trackingFee !== undefined ? pf.trackingFee : finalOrder.trackingFee,
+                totalPackingFee: pf.totalPackingFee !== undefined ? pf.totalPackingFee : finalOrder.totalPackingFee,
+                totalWeightKg: pf.totalWeightKg !== undefined ? pf.totalWeightKg : finalOrder.totalWeightKg,
+              };
+            }
+          }
+        }
+        setOrderDetails(finalOrder);
+      } catch (e) {
+        // ignore - keep showing local order
+        console.warn('Failed to fetch server order for details view', e);
+      }
+    })();
   };
 
   // Helpers for formatting in Order Details dialog
@@ -885,15 +1026,25 @@ const openMarkItemsDialog = (order) => {
 
   const computePackingFee = (o) => {
     if (!o) return 'N/A';
-    const fee = (o.items || []).reduce((sum, item) => {
+    // Item-wise fees broken into components
+    const itemComponents = (o.items || []).reduce((acc, item) => {
       const prod = products.find(p => p.id === item.productId);
-      if (!prod) return sum;
-      const actual = prod.weightKg || 0;
-      const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
-      const f = calculateDispatchFee ? calculateDispatchFee(actual, vol, prod.packingType || 'normal packing') : 0;
-      return sum + f * (item.quantity || 0);
-    }, 0);
-    return isFinite(fee) ? `₹${fee.toFixed(2)}` : 'N/A';
+      if (!prod) return acc;
+      const comps = calculatePerItemComponents(prod);
+      const qty = item.quantity || 0;
+      acc.packing += comps.packing * qty;
+      acc.transportation += comps.transportation * qty;
+      acc.warehousing += comps.warehousing * qty;
+      return acc;
+    }, { packing: 0, transportation: 0, warehousing: 0 });
+    const itemsFee = itemComponents.packing + itemComponents.transportation + itemComponents.warehousing;
+    // Box and tracking fees
+    const boxFeeVal = Number(o.boxFee) || 0;
+    const boxCuttingVal = o.boxCutting ? 1 : 0; // boolean
+    const trackingFee = 3; // fixed ₹3 tracking fee per order
+    const boxTotal = boxFeeVal + (boxCuttingVal ? 2 : 0) + trackingFee;
+    const total = itemsFee + boxTotal;
+    return isFinite(total) ? `₹${total.toFixed(2)}` : 'N/A';
   };
 
   // Fetch a fresh order document directly from the backend (reads DB)
@@ -908,6 +1059,28 @@ const openMarkItemsDialog = (order) => {
       return body && body.order ? body.order : null;
     } catch (err) {
       console.error('fetchOrderFromServer error', err);
+      return null;
+    }
+  };
+
+  // Fetch PackingFee document for an order from the backend
+  const fetchPackingFeeFromServer = async (orderId) => {
+    if (!orderId) return null;
+    try {
+      const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
+      const apiBase = isLocalDev ? 'https://forwokbackend-1.onrender.com' : '';
+      const res = await fetch(`${apiBase}/api/packingfees/${encodeURIComponent(orderId)}`, { cache: 'no-store' });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Failed to fetch packingfee ${orderId}: ${res.status} ${res.statusText} ${txt}`);
+      }
+      const body = await res.json();
+      // API returns { packingFee: { ... } } or the doc directly depending on server implementation
+      if (!body) return null;
+      if (body.packingFee) return body.packingFee;
+      return body;
+    } catch (err) {
+      console.warn('fetchPackingFeeFromServer error', err);
       return null;
     }
   };
@@ -1203,16 +1376,40 @@ const openMarkItemsDialog = (order) => {
           </DialogDescription>
           <div className="space-y-4">
             {(ordersForWeightUpdate || []).map((order) => (
-              <div key={order.id} className="flex items-center gap-2">
-                <Label htmlFor={`weight-${order.id}`}>Order ID: {order.id}</Label>
-                <Input
-                  id={`weight-${order.id}`}
-                  type="number"
-                  step="0.001"
-                  value={weights[order.id] || ''}
-                  onChange={(e) => setWeights((prev) => ({ ...prev, [order.id]: e.target.value }))}
-                  placeholder="Weight (kg)"
-                />
+              <div key={order.id} className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor={`weight-${order.id}`}>Order ID: {order.id}</Label>
+                  <Input
+                    id={`weight-${order.id}`}
+                    type="number"
+                    step="0.001"
+                    value={weights[order.id] || ''}
+                    onChange={(e) => setWeights((prev) => ({ ...prev, [order.id]: e.target.value }))}
+                    placeholder="Weight (kg)"
+                    className="w-40"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor={`boxFee-${order.id}`}>Box Fee (₹)</Label>
+                  <Input
+                    id={`boxFee-${order.id}`}
+                    type="number"
+                    step="0.01"
+                    value={boxFees[order.id] ?? (order.boxFee !== undefined ? String(order.boxFee) : '')}
+                    onChange={(e) => setBoxFees((prev) => ({ ...prev, [order.id]: e.target.value }))}
+                    placeholder="e.g. 10.00"
+                    className="w-32"
+                  />
+                  <Label htmlFor={`boxCutting-${order.id}`} className="flex items-center gap-1">
+                    <input
+                      id={`boxCutting-${order.id}`}
+                      type="checkbox"
+                      checked={boxCuttings[order.id] ?? Boolean(order.boxCutting)}
+                      onChange={(e) => setBoxCuttings((prev) => ({ ...prev, [order.id]: e.target.checked }))}
+                    />
+                    <span className="text-sm">Box Cutting (+₹2)</span>
+                  </Label>
+                </div>
               </div>
             ))}
           </div>
@@ -1225,7 +1422,7 @@ const openMarkItemsDialog = (order) => {
 
       {/* Order Details Dialog */}
       <Dialog open={isOrderDetailsDialogOpen} onOpenChange={setIsOrderDetailsDialogOpen}>
-        <DialogContent className="max-w-lg p-6 bg-white rounded-lg shadow-md" aria-describedby="order-details-description">
+        <DialogContent className="max-w-full sm:max-w-lg p-4 sm:p-6 bg-white rounded-lg shadow-md" aria-describedby="order-details-description">
             <DialogTitle className="text-xl font-bold text-gray-800">Order Details</DialogTitle>
             <DialogDescription id="order-details-description" className="text-sm text-gray-600 mb-4">
               Details for Order ID: <span className="font-medium text-gray-800">{orderDetails?.id || 'N/A'}</span>
@@ -1270,7 +1467,94 @@ const openMarkItemsDialog = (order) => {
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <div className="text-xs text-gray-500">Packing Fee</div>
-                <div className="text-gray-800">{computePackingFee(orderDetails)}</div>
+                <div className="text-gray-800">{(() => {
+                  // Prefer authoritative server value when available on the order or fetched packingFees map
+                  const serverVal = orderDetails && (orderDetails.totalPackingFee !== undefined && orderDetails.totalPackingFee !== null
+                    ? orderDetails.totalPackingFee
+                    : (orderDetails.packingFee !== undefined && orderDetails.packingFee !== null ? orderDetails.packingFee : undefined));
+                  if (serverVal !== undefined) {
+                    return `₹${Number(serverVal).toFixed(2)}`;
+                  }
+                  // fallback to batch fetched packing fees map (if this dialog was opened after batch fetch)
+                  const backendMapVal = orderDetails && packingFeesByOrder[orderDetails.id];
+                  if (backendMapVal !== undefined && backendMapVal !== null) {
+                    return `₹${Number(backendMapVal).toFixed(2)}`;
+                  }
+                  // final fallback: compute client-side from product metadata
+                  return computePackingFee(orderDetails);
+                })()}</div>
+                {/* Price breakup: show per-item components and order-level extras when available */}
+                {(orderDetails?.packingDetails && orderDetails.packingDetails.length > 0) ? (
+                  <div className="mt-3 bg-gray-50 p-4 sm:p-6 rounded">
+                    <div className="text-base sm:text-lg font-semibold mb-3">Price Breakup</div>
+                    <div>
+                      {/* Desktop / tablet: table view */}
+                      <div className="hidden sm:block w-full overflow-x-auto">
+                        <table className="w-full text-base">
+                          <thead>
+                            <tr className="text-left text-sm text-gray-600">
+                              <th className="pb-2">Item</th>
+                              <th className="pb-2">Qty</th>
+                              <th className="pb-2">Packing</th>
+                              <th className="pb-2">Transport</th>
+                              <th className="pb-2">Warehousing</th>
+                              <th className="pb-2">Line Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {orderDetails.packingDetails.map((it, idx) => (
+                              <tr key={idx} className="border-t border-gray-100">
+                                <td className="py-3 text-base">{it.name || 'Item'}</td>
+                                <td className="py-3 text-base">{it.quantity || 1}</td>
+                                <td className="py-3 text-base">₹{(Number(it.itemPackingPerItem || 0)).toFixed(2)}</td>
+                                <td className="py-3 text-base">₹{(Number(it.transportationPerItem || 0)).toFixed(2)}</td>
+                                <td className="py-3 text-base">₹{(Number(it.warehousingPerItem || 0)).toFixed(2)}</td>
+                                <td className="py-3 text-base">₹{(Number(it.lineTotal || 0)).toFixed(2)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {/* Mobile: stacked view */}
+                      <div className="sm:hidden space-y-3">
+                        {orderDetails.packingDetails.map((it, idx) => (
+                          <div key={idx} className="p-3 bg-white border border-gray-100 rounded">
+                            <div className="flex justify-between items-center">
+                              <div className="font-medium text-base">{it.name || 'Item'}</div>
+                              <div className="text-sm text-gray-600">x{it.quantity || 1}</div>
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-3 text-base text-gray-800">
+                              <div className="flex justify-between"><span>Packing</span><span>₹{(Number(it.itemPackingPerItem || 0)).toFixed(2)}</span></div>
+                              <div className="flex justify-between"><span>Transport</span><span>₹{(Number(it.transportationPerItem || 0)).toFixed(2)}</span></div>
+                              <div className="flex justify-between"><span>Warehousing</span><span>₹{(Number(it.warehousingPerItem || 0)).toFixed(2)}</span></div>
+                              <div className="flex justify-between font-medium"><span>Line Total</span><span>₹{(Number(it.lineTotal || 0)).toFixed(2)}</span></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="mt-3 text-sm">
+                      <div className="flex justify-between"><span>Box Fee</span><span>₹{(Number(orderDetails.boxFee || 0)).toFixed(2)}</span></div>
+                      <div className="flex justify-between"><span>Box Cutting</span><span>{orderDetails.boxCutting ? '₹2.00' : '₹0.00'}</span></div>
+                      <div className="flex justify-between"><span>Tracking Fee</span><span>₹{(Number(orderDetails.trackingFee !== undefined ? orderDetails.trackingFee : 3)).toFixed(2)}</span></div>
+                      <div className="flex justify-between font-medium mt-2">
+                        <span>Total</span>
+                        <span>{(() => {
+                          const pd = orderDetails.packingDetails || [];
+                          const lines = pd.reduce((s, i) => s + Number(i.lineTotal || 0), 0);
+                          const box = Number(orderDetails.boxFee || 0);
+                          const cutting = orderDetails.boxCutting ? 2 : 0;
+                          const track = Number(orderDetails.trackingFee !== undefined ? orderDetails.trackingFee : 3);
+                          const fallback = lines + box + cutting + track;
+                          const total = (orderDetails.packingFee !== undefined && orderDetails.packingFee !== null)
+                            ? Number(orderDetails.packingFee)
+                            : (orderDetails.totalPackingFee !== undefined ? Number(orderDetails.totalPackingFee) : fallback);
+                          return `₹${total.toFixed(2)}`;
+                        })()}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <div>
@@ -1431,14 +1715,13 @@ const openMarkItemsDialog = (order) => {
                        if (foundAny || perItemsSum > 0) computedWeightValue = perItemsSum;
                        else computedWeightValue = null;
                      }
-                     const packingFee = (order.items || []).reduce((sum, item) => {
-                       const prod = products.find(p => p.id === item.productId);
-                       if (!prod) return sum;
-                       const actual = prod.weightKg || 0;
-                       const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
-                       const fee = calculateDispatchFee ? calculateDispatchFee(actual, vol, prod.packingType || 'normal packing') : 0;
-                       return sum + fee * (item.quantity || 0);
-                     }, 0);
+                      const computedPackingFee = (order.items || []).reduce((sum, item) => {
+                        const prod = products.find(p => p.id === item.productId);
+                        if (!prod) return sum;
+                        const fee = calculatePerItemTotalFee(prod);
+                        return sum + fee * (item.quantity || 0);
+                      }, 0);
+                      const packingFee = (order.packingFee !== undefined && order.packingFee !== null && order.packingFee !== '') ? Number(order.packingFee) : computedPackingFee;
                      return (
                      <motion.tr
                        key={order.id}
@@ -1512,7 +1795,20 @@ const openMarkItemsDialog = (order) => {
                          </div>
                        </TableCell>
                        <TableCell>{computedWeightValue !== null ? computedWeightValue.toFixed(3) : 'N/A'}</TableCell>
-                       <TableCell>₹{packingFee.toFixed(2)}</TableCell>
+                      <TableCell>
+                        {String(order.status || '').toLowerCase() === 'pending'
+                          ? 'packing fee pending'
+                          : (() => {
+                              // Prefer backend `totalPackingFee` from packingfees collection when available
+                              const backendValue = packingFeesByOrder[order.id];
+                              if (backendValue !== undefined && backendValue !== null) {
+                                return `₹${Number(backendValue).toFixed(2)}`;
+                              }
+                              const orderHasPacking = (order.packingFee !== undefined && order.packingFee !== null && order.packingFee !== '');
+                              const amount = orderHasPacking ? Number(order.packingFee) : Number(computedPackingFee || 0);
+                              return `₹${(isFinite(amount) ? amount : 0).toFixed(2)}`;
+                            })()}
+                      </TableCell>
                        <TableCell>
                          <StatusTimelineDropdown order={order} />
                        </TableCell>

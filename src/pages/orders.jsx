@@ -273,6 +273,32 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
     });
   };
 
+  // Calculate total per-item fees from product-level fields (falls back to legacy calculateDispatchFee)
+  const calculatePerItemTotalFee = (prod) => {
+    if (!prod) return 0;
+    const actual = prod.weightKg || 0;
+    const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+    const basePacking = (prod.itemPackingFee !== undefined && prod.itemPackingFee !== null && prod.itemPackingFee !== '')
+      ? Number(prod.itemPackingFee) || 0
+      : calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
+    const transportation = Number(prod.transportationFee || 0);
+    const warehousingPerItem = (Number(prod.warehousingRatePerKg || 0)) * (prod.weightKg || actual || 0);
+    return basePacking + transportation + warehousingPerItem;
+  };
+
+  // Helper: return per-item breakdown { packing, transportation, warehousing }
+  const calculatePerItemComponents = (prod) => {
+    if (!prod) return { packing: 0, transportation: 0, warehousing: 0 };
+    const actual = prod.weightKg || 0;
+    const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
+    const packing = (prod.itemPackingFee !== undefined && prod.itemPackingFee !== null && prod.itemPackingFee !== '')
+      ? Number(prod.itemPackingFee) || 0
+      : (calculateDispatchFee ? calculateDispatchFee(actual, vol, prod.packingType || 'normal packing') : 0);
+    const transportation = Number(prod.transportationFee || 0);
+    const warehousing = (Number(prod.warehousingRatePerKg || 0)) * (prod.weightKg || actual || 0);
+    return { packing, transportation, warehousing };
+  };
+
   const merchantOrders = orders.filter(o => o.merchantId === currentUser?.id);
 
   // Date range helpers
@@ -619,13 +645,11 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
     });
     const totalWeightKg = parseFloat(itemsWithWeights.reduce((s, it) => s + (it.weightKg || 0), 0).toFixed(3));
 
-    // Calculate packing fee (auto-calculated)
+    // Calculate packing fee (auto-calculated using product-level fees)
     const packingFee = itemsWithWeights.reduce((sum, it) => {
       const prod = products.find(p => p.id === it.productId);
       if (!prod) return sum;
-      const actual = prod.weightKg || 0;
-      const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
-      const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
+      const feePerItem = calculatePerItemTotalFee(prod);
       return sum + feePerItem * (it.quantity || 0);
     }, 0);
 
@@ -923,15 +947,22 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                   </TableHeader>
                   <TableBody>
                     {filteredOrders.map(order => {
-                      // calculate packing fee for this order
-                      const packingFee = (order.items || []).reduce((sum, item) => {
-                        const prod = products.find(p => p.id === item.productId);
-                        if (!prod) return sum;
-                        const actual = prod.weightKg || 0;
-                        const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
-                        const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
-                        return sum + feePerItem * (item.quantity || 0);
-                      }, 0);
+                      // calculate packing fee for this order (items + box + box-cutting + tracking)
+                      const computedPackingFee = (() => {
+                        const itemsFee = (order.items || []).reduce((sum, item) => {
+                          const prod = products.find(p => p.id === item.productId);
+                          if (!prod) return sum;
+                          const comps = calculatePerItemComponents(prod);
+                          const feePerItem = (comps.packing || 0) + (comps.transportation || 0) + (comps.warehousing || 0);
+                          return sum + feePerItem * (item.quantity || 0);
+                        }, 0);
+                        const boxFeeVal = Number(order.boxFee) || 0;
+                        const boxCuttingVal = order.boxCutting ? 1 : 0;
+                        const trackingFee = 3;
+                        const boxTotal = boxFeeVal + (boxCuttingVal ? 2 : 0) + trackingFee;
+                        return itemsFee + boxTotal;
+                      })();
+                      const packingFee = (order.packingFee !== undefined && order.packingFee !== null && order.packingFee !== '') ? Number(order.packingFee) : computedPackingFee;
                       return (
                       <TableRow key={order.id}>
                           <TableCell className="hidden sm:table-cell">
@@ -1051,15 +1082,22 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                   </TableHeader>
                   <TableBody>
                     {filteredOrders.map(order => {
-                      // calculate packing fee for this order
-                      const packingFee = (order.items || []).reduce((sum, item) => {
-                        const prod = products.find(p => p.id === item.productId);
-                        if (!prod) return sum;
-                        const actual = prod.weightKg || 0;
-                        const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
-                        const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
-                        return sum + feePerItem * (item.quantity || 0);
-                      }, 0);
+                      // calculate packing fee for this order (items + box + box-cutting + tracking)
+                      const computedPackingFee = (() => {
+                        const itemsFee = (order.items || []).reduce((sum, item) => {
+                          const prod = products.find(p => p.id === item.productId);
+                          if (!prod) return sum;
+                          const comps = calculatePerItemComponents(prod);
+                          const feePerItem = (comps.packing || 0) + (comps.transportation || 0) + (comps.warehousing || 0);
+                          return sum + feePerItem * (item.quantity || 0);
+                        }, 0);
+                        const boxFeeVal = Number(order.boxFee) || 0;
+                        const boxCuttingVal = order.boxCutting ? 1 : 0;
+                        const trackingFee = 3;
+                        const boxTotal = boxFeeVal + (boxCuttingVal ? 2 : 0) + trackingFee;
+                        return itemsFee + boxTotal;
+                      })();
+                      const packingFee = (order.packingFee !== undefined && order.packingFee !== null && order.packingFee !== '') ? Number(order.packingFee) : computedPackingFee;
                       return (
                       <TableRow key={order.id}>
                         <TableCell className="hidden sm:table-cell">
@@ -1124,15 +1162,20 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                   </TableHeader>
                   <TableBody>
                     {filteredOrders.map(order => {
-                      // calculate packing fee for this order
-                      const packingFee = (order.items || []).reduce((sum, item) => {
-                        const prod = products.find(p => p.id === item.productId);
-                        if (!prod) return sum;
-                        const actual = prod.weightKg || 0;
-                        const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
-                        const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
-                        return sum + feePerItem * (item.quantity || 0);
-                      }, 0);
+                      // calculate packing fee for this order (items + box + box-cutting + tracking)
+                      const packingFee = (() => {
+                        const itemsFee = (order.items || []).reduce((sum, item) => {
+                          const prod = products.find(p => p.id === item.productId);
+                          if (!prod) return sum;
+                          const feePerItem = calculatePerItemTotalFee(prod);
+                          return sum + feePerItem * (item.quantity || 0);
+                        }, 0);
+                        const boxFeeVal = Number(order.boxFee) || 0;
+                        const boxCuttingVal = order.boxCutting ? 1 : 0;
+                        const trackingFee = 3;
+                        const boxTotal = boxFeeVal + (boxCuttingVal ? 2 : 0) + trackingFee;
+                        return itemsFee + boxTotal;
+                      })();
                       return (
                       <TableRow key={order.id}>
                         <TableCell className="hidden sm:table-cell">
@@ -1197,15 +1240,22 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                   </TableHeader>
                   <TableBody>
                     {filteredOrders.map(order => {
-                      // calculate packing fee for this order
-                      const packingFee = (order.items || []).reduce((sum, item) => {
-                        const prod = products.find(p => p.id === item.productId);
-                        if (!prod) return sum;
-                        const actual = prod.weightKg || 0;
-                        const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
-                        const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
-                        return sum + feePerItem * (item.quantity || 0);
-                      }, 0);
+                      // calculate packing fee for this order (items + box + box-cutting + tracking)
+                      const computedPackingFee = (() => {
+                        const itemsFee = (order.items || []).reduce((sum, item) => {
+                          const prod = products.find(p => p.id === item.productId);
+                          if (!prod) return sum;
+                          const comps = calculatePerItemComponents(prod);
+                          const feePerItem = (comps.packing || 0) + (comps.transportation || 0) + (comps.warehousing || 0);
+                          return sum + feePerItem * (item.quantity || 0);
+                        }, 0);
+                        const boxFeeVal = Number(order.boxFee) || 0;
+                        const boxCuttingVal = order.boxCutting ? 1 : 0;
+                        const trackingFee = 3;
+                        const boxTotal = boxFeeVal + (boxCuttingVal ? 2 : 0) + trackingFee;
+                        return itemsFee + boxTotal;
+                      })();
+                      const packingFee = (order.packingFee !== undefined && order.packingFee !== null && order.packingFee !== '') ? Number(order.packingFee) : computedPackingFee;
                       return (
                       <TableRow key={order.id}>
                         <TableCell className="hidden sm:table-cell">
@@ -1468,7 +1518,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                     if (!prod) return sum;
                     const actual = prod.weightKg || 0;
                     const vol = calculateVolumetricWeight(prod.lengthCm || 0, prod.breadthCm || 0, prod.heightCm || 0);
-                    const feePerItem = calculateDispatchFee(actual, vol, prod.packingType || 'normal packing');
+                    const feePerItem = calculatePerItemTotalFee(prod);
                     return sum + feePerItem * (item.quantity || 0);
                   }, 0);
                   return pf ? `₹${pf.toFixed(2)}` : '₹0.00';

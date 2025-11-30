@@ -12,7 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { calculateVolumetricWeight, calculateDispatchFee, calculateInboundFee } from '../lib/utils.js';
 
 const Products = () => {
-  const { products, users, addProduct, updateProduct, deleteProduct } = useInventory();
+  const { products, users, addProduct, updateProduct, deleteProduct, currentUser } = useInventory();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentProduct, setCurrentProduct] = useState(null);
   
@@ -25,7 +25,10 @@ const Products = () => {
     description: '',
     imageUrl: '',
     weightKg: '',
-    packingType: 'normal packing',
+    // New fee fields
+    transportationFee: '',
+    itemPackingFee: '',
+    warehousingRatePerKg: '',
     lengthCm: '',
     breadthCm: '',
     heightCm: '',
@@ -70,7 +73,9 @@ const Products = () => {
       price: formData.price === '' ? 0 : parseFloat(formData.price),
       cost: formData.cost === '' ? 0 : parseFloat(formData.cost),
       weightKg: formData.weightKg === '' ? 0 : parseFloat(formData.weightKg),
-      packingType: formData.packingType || 'normal packing',
+      transportationFee: formData.transportationFee === '' ? 0 : parseFloat(formData.transportationFee),
+      itemPackingFee: formData.itemPackingFee === '' ? 0 : parseFloat(formData.itemPackingFee),
+      warehousingRatePerKg: formData.warehousingRatePerKg === '' ? 0 : parseFloat(formData.warehousingRatePerKg),
       packingPrice: formData.packingPrice === '' ? 0 : parseFloat(formData.packingPrice),
       inboundPrice: formData.inboundPrice === '' ? 0 : parseFloat(formData.inboundPrice),
       outboundPrice: formData.outboundPrice === '' ? 0 : parseFloat(formData.outboundPrice),
@@ -94,7 +99,9 @@ const Products = () => {
         cost: product.cost !== undefined && product.cost !== null ? product.cost.toString() : '',
         description: product.description ?? '',
         imageUrl: product.imageUrl ?? '',
-        packingType: product.packingType ?? 'normal packing',
+        transportationFee: product.transportationFee !== undefined && product.transportationFee !== null ? product.transportationFee.toString() : '',
+        itemPackingFee: product.itemPackingFee !== undefined && product.itemPackingFee !== null ? product.itemPackingFee.toString() : '',
+        warehousingRatePerKg: product.warehousingRatePerKg !== undefined && product.warehousingRatePerKg !== null ? product.warehousingRatePerKg.toString() : '',
         weightKg: product.weightKg !== undefined && product.weightKg !== null ? product.weightKg.toString() : '',
         lengthCm: product.lengthCm !== undefined && product.lengthCm !== null ? product.lengthCm.toString() : '',
         breadthCm: product.breadthCm !== undefined && product.breadthCm !== null ? product.breadthCm.toString() : '',
@@ -104,7 +111,7 @@ const Products = () => {
         packingPrice: product.packingPrice !== undefined && product.packingPrice !== null ? product.packingPrice.toString() : ''
       });
     } else {
-      setFormData({ name: '', skus: [''], category: '', price: '', cost: '', description: '', imageUrl: '', packingType: 'normal packing', weightKg: '', lengthCm: '', breadthCm: '', heightCm: '', inboundPrice: '', outboundPrice: '', packingPrice: '' });
+      setFormData({ name: '', skus: [''], category: '', price: '', cost: '', description: '', imageUrl: '', weightKg: '', transportationFee: '', itemPackingFee: '', warehousingRatePerKg: '', lengthCm: '', breadthCm: '', heightCm: '', inboundPrice: '', outboundPrice: '', packingPrice: '' });
     }
     setIsModalOpen(true);
   };
@@ -249,61 +256,59 @@ const Products = () => {
                     className="col-span-3 sm:col-span-1"
                   />
                 </div>
+                {currentUser?.role !== 'merchant' && (
+                  <>
+                    <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4">
+                      <Label className="text-right sm:text-left">Transportation Fee (₹) per item</Label>
+                      <Input id="transportationFee" name="transportationFee" value={formData.transportationFee} onChange={handleInputChange} className="col-span-3 sm:col-span-1 w-full" placeholder="e.g. 5.00" />
+                    </div>
+                    <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4">
+                      <Label className="text-right sm:text-left">Item Packing Fee (₹) per item</Label>
+                      <Input id="itemPackingFee" name="itemPackingFee" value={formData.itemPackingFee} onChange={handleInputChange} className="col-span-3 sm:col-span-1 w-full" placeholder="e.g. 12.00" />
+                    </div>
+                    <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4">
+                      <Label className="text-right sm:text-left">Warehousing Rate (₹) per kg</Label>
+                      <Input id="warehousingRatePerKg" name="warehousingRatePerKg" value={formData.warehousingRatePerKg} onChange={handleInputChange} className="col-span-3 sm:col-span-1 w-full" placeholder="e.g. 2.00" />
+                    </div>
+                  </>
+                )}
                 <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4">
-                  <Label htmlFor="packingType" className="text-right sm:text-left">Packing Type</Label>
-                  <select
-                    id="packingType"
-                    name="packingType"
-                    value={formData.packingType}
-                    onChange={handleInputChange}
-                    className="col-span-3 sm:col-span-1 border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"
-                  >
-                    <option value="normal packing">Normal Packing</option>
-                    <option value="fragile packing">Fragile Packing</option>
-                    <option value="eco friendly fragile packing">eco friendly fragile packing</option>
-                  </select>
-                </div>
-                <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4">
-                  <Label htmlFor="packingFee" className="text-right sm:text-left">Packing Fee (₹)</Label>
+                  <Label className="text-right sm:text-left">Warehousing Fee (₹) per item</Label>
                   <div className="col-span-3 sm:col-span-1 py-2">
                     {(() => {
-                      const actualWeight = parseFloat(formData.weightKg) || 0;
-                      const length = parseFloat(formData.lengthCm) || 0;
-                      const breadth = parseFloat(formData.breadthCm) || 0;
-                      const height = parseFloat(formData.heightCm) || 0;
-                      const volumetricWeight = calculateVolumetricWeight(length, breadth, height);
-                      const fee = calculateDispatchFee(actualWeight, volumetricWeight, formData.packingType);
-                      return fee.toFixed(2);
+                      const src = currentProduct || formData;
+                      const rate = Number(src.warehousingRatePerKg) || 0;
+                      const w = Number(src.weightKg) || 0;
+                      const perItem = rate * w;
+                      return perItem.toFixed(2);
                     })()}
                   </div>
                 </div>
                 <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4">
-                  <Label htmlFor="inboundPrice" className="text-right sm:text-left">Inbound/Outbound Fee (₹)</Label>
-                  <div className="col-span-3 sm:col-span-1 py-2">
-                    {(() => {
-                      const actualWeight = parseFloat(formData.weightKg) || 0;
-                      const length = parseFloat(formData.lengthCm) || 0;
-                      const breadth = parseFloat(formData.breadthCm) || 0;
-                      const height = parseFloat(formData.heightCm) || 0;
-                      const volumetricWeight = calculateVolumetricWeight(length, breadth, height);
-                      const fee = calculateInboundFee(actualWeight, volumetricWeight);
-                      return fee.toFixed(2);
-                    })()}
-                  </div>
+                  <Label className="text-right sm:text-left">Transportation Fee (₹) per item</Label>
+                  <div className="col-span-3 sm:col-span-1 py-2">{(() => {
+                    const src = currentProduct || formData;
+                    return (Number(src.transportationFee) || 0).toFixed(2);
+                  })()}</div>
                 </div>
                 <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4">
-                  <Label htmlFor="totalCharges" className="text-right sm:text-left">Estimated Total Charges (₹)</Label>
+                  <Label className="text-right sm:text-left">Item Packing Fee (₹) per item</Label>
+                  <div className="col-span-3 sm:col-span-1 py-2">{(() => {
+                    const src = currentProduct || formData;
+                    return (Number(src.itemPackingFee) || 0).toFixed(2);
+                  })()}</div>
+                </div>
+                <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4">
+                  <Label className="text-right sm:text-left">Estimated Total Item Fees (₹) per item</Label>
                   <div className="col-span-3 sm:col-span-1 py-2">
                     {(() => {
-                      const actualWeight = parseFloat(formData.weightKg) || 0;
-                      const length = parseFloat(formData.lengthCm) || 0;
-                      const breadth = parseFloat(formData.breadthCm) || 0;
-                      const height = parseFloat(formData.heightCm) || 0;
-                      const volumetricWeight = calculateVolumetricWeight(length, breadth, height);
-                      const packingFee = calculateDispatchFee(actualWeight, volumetricWeight, formData.packingType);
-                      const inboundFee = calculateInboundFee(actualWeight, volumetricWeight);
-                      const total = packingFee + inboundFee;
-                      return total.toFixed(2);
+                      const src = currentProduct || formData;
+                      const rate = Number(src.warehousingRatePerKg) || 0;
+                      const w = Number(src.weightKg) || 0;
+                      const ware = rate * w;
+                      const trans = Number(src.transportationFee) || 0;
+                      const pack = Number(src.itemPackingFee) || 0;
+                      return (ware + trans + pack).toFixed(2);
                     })()}
                   </div>
                 </div>

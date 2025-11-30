@@ -547,7 +547,7 @@ export const InventoryProvider = ({ children }) => {
 
     const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
 
-    // Calculate dispatch fee per item using new calculator
+    // Calculate dispatch/packing fees using product-level fees when available
     let totalDispatchFee = 0;
     order.items.forEach(item => {
       const product = products.find(p => p.id === item.productId);
@@ -557,7 +557,12 @@ export const InventoryProvider = ({ children }) => {
         const breadth = product.breadthCm || 0;
         const height = product.heightCm || 0;
         const volumetricWeight = calculateVolumetricWeight(length, breadth, height);
-        const feePerItem = calculateDispatchFee(actualWeight, volumetricWeight, product.packingType || 'normal packing');
+        const basePacking = (product.itemPackingFee !== undefined && product.itemPackingFee !== null && product.itemPackingFee !== '')
+          ? Number(product.itemPackingFee) || 0
+          : calculateDispatchFee(actualWeight, volumetricWeight, product.packingType || 'normal packing');
+        const transportation = Number(product.transportationFee || 0);
+        const warehousingPerItem = (Number(product.warehousingRatePerKg || 0)) * (product.weightKg || actualWeight || 0);
+        const feePerItem = basePacking + transportation + warehousingPerItem;
         totalDispatchFee += feePerItem * item.quantity;
       }
     });
