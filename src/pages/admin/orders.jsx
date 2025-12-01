@@ -15,66 +15,130 @@ import { generateShippingLabelPDF } from '../../lib/pdfGenerator.js';
 import { calculateVolumetricWeight, calculateDispatchFee } from '../../lib/utils.js';
 import { StatusTimelineDropdown } from '../../components/StatusTimelineDropdown.jsx';
 
-// Ensure renderTemplate is defined at the top level of the file
-const renderTemplate = (tpl, data = {}) => {
-  const src = String(tpl || '').trim();
+// Full template renderer (supports assign, for, if/unless, date filter)
+const renderTemplate = (tpl, data) => {
+  const src = String(tpl || '');
+  const local = {};
 
-  const resolvePath = (path, ctx = data) => {
+  const resolvePath = (path) => {
     if (!path) return undefined;
     const parts = path.trim().split('.');
-    let cur = ctx;
-    for (const p of parts) {
-      if (cur == null) {
-        console.warn(`Missing path: ${path} at part: ${p}`);
-        return undefined;
-      }
-      cur = cur[p];
+    if (parts[0] && Object.prototype.hasOwnProperty.call(local, parts[0])) {
+      let v = local[parts[0]];
+      for (let i = 1; i < parts.length; i++) { if (v == null) return undefined; v = v[parts[i]]; }
+      return v;
     }
+    let cur = data;
+    for (const p of parts) { if (cur == null) return undefined; cur = cur[p]; }
     return cur;
   };
 
-  // Add debugging logs
-  console.log("Template source:", src);
-  console.log("Data context:", data);
-
-  // Replace {{ }} placeholders
-  let out = src.replace(/{{\s*([^}]+)\s*}}/g, (_, expr) => {
-    try {
-      const key = expr.trim();
-      const val = resolvePath(key);
-      if (val == null) {
-        console.warn(`Missing value for: ${key}`);
-        return '';
-      }
-      return String(val).trim();
-    } catch (e) {
-      console.error(`Error resolving path: ${expr}`, e);
+  let out = src
+    // assign: {% assign items = fulfillment.line_items | default: line_items | default: order.line_items %}
+    .replace(/{%\s*assign\s+(\w+)\s*=\s*([^%]+?)\s*%}/g, (m, name, expr) => {
+      try {
+        const parts = expr.split(/\|\s*default\s*:\s*/).map(s => s.trim()).filter(Boolean);
+        for (const p of parts) {
+          const lit = p.match(/^['\"](.*)['\"]$/);
+          if (lit) { local[name] = lit[1]; break; }
+          const val = resolvePath(p);
+          if (val !== undefined && val !== null && !(Array.isArray(val) && val.length === 0) && !(typeof val === 'string' && String(val).trim() === '')) { local[name] = val; break; }
+        }
+      } catch (e) { local[name] = null; }
       return '';
-    }
+    });
+
+  // provide items fallback
+  if (!Object.prototype.hasOwnProperty.call(local, 'items')) {
+    const fallback = resolvePath('fulfillment.line_items') || resolvePath('line_items') || resolvePath('order.line_items') || resolvePath('items') || resolvePath('order.items');
+    if (fallback !== undefined) local.items = fallback;
+  }
+  if (Array.isArray(local.items)) local.total_quantity = local.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+
+  // Iteratively resolve for-loops (handles nested loops)
+  const forRegex = /{%\s*for\s+(\w+)\s+in\s+([\w.]+)\s*%}([\s\S]*?){%\s*endfor\s*%}/g;
+  let prevOut;
+  do {
+    prevOut = out;
+    out = out.replace(forRegex, (m, itemVar, listPath, inner) => {
+      try {
+        const list = (Object.prototype.hasOwnProperty.call(local, listPath) ? local[listPath] : resolvePath(listPath)) || [];
+        if (!Array.isArray(list)) return '';
+        return list.map(it => inner.replace(/{{\s*([^}]+)\s*}}/g, (m2, token) => {
+          const t = token.trim();
+          if (t.startsWith(itemVar + '.')) { const prop = t.slice(itemVar.length + 1); return (it && it[prop] != null) ? String(it[prop]) : ''; }
+          const val = resolvePath(t); return val == null ? '' : String(val);
+        })).join('\n');
+      } catch (e) { console.error('for loop error', e); return ''; }
+    });
+  } while (out !== prevOut);
+
+  // Iteratively resolve unless blocks
+  const unlessRegex = /{%\s*unless\s+([^%]+?)\s*%}([\s\S]*?){%\s*endunless\s*%}/g;
+  do {
+    prevOut = out;
+    out = out.replace(unlessRegex, (m, cond, inner) => {
+      try {
+        const truth = (cond || '').trim();
+        const isTrue = (() => {
+          const notBlank = truth.match(/^([\w.]+)\s*!=\s*blank$/);
+          if (notBlank) { const v = resolvePath(notBlank[1]); return !(v === undefined || v === null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0)); }
+          return Boolean(resolvePath(truth));
+        })();
+        return !isTrue ? inner : '';
+      } catch (e) { console.error('unless error', e); return ''; }
+    });
+  } while (out !== prevOut);
+
+  // Iteratively resolve if blocks (handles nested ifs)
+  const ifRegex = /{%\s*if\s+([^%]+?)\s*%}([\s\S]*?)(?:{%\s*else\s*%}([\s\S]*?))?{%\s*endif\s*%}/g;
+  do {
+    prevOut = out;
+    out = out.replace(ifRegex, (m, cond, a, b) => {
+      try {
+        const evalCond = (c) => {
+          c = (c || '').trim();
+          const notBlank = c.match(/^([\w.]+)\s*!=\s*blank$/);
+          if (notBlank) { const v = resolvePath(notBlank[1]); return !(v === undefined || v === null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0)); }
+          const eqBlank = c.match(/^([\w.]+)\s*==\s*blank$/);
+          if (eqBlank) { const v = resolvePath(eqBlank[1]); return (v === undefined || v === null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0)); }
+          const neg = c.match(/^\s*not\s+([\w.]+)\s*$/i);
+          if (neg) return !Boolean(resolvePath(neg[1]));
+          return Boolean(resolvePath(c));
+        };
+        return evalCond(cond) ? (a || '') : (b || '');
+      } catch (e) { console.error('if error', e); return ''; }
+    });
+  } while (out !== prevOut);
+
+  // final token replacement with basic | date filter
+  out = out.replace(/{{\s*([^}]+)\s*}}/g, (m, expr) => {
+    try {
+      const parts = expr.split('|').map(p => p.trim()).filter(Boolean);
+      const key = parts[0];
+      let val = Object.prototype.hasOwnProperty.call(local, key) ? local[key] : resolvePath(key);
+      for (let i = 1; i < parts.length; i++) {
+        const f = parts[i];
+        if (/^date\b/.test(f)) { if (!val) continue; const d = new Date(val); if (!isNaN(d.getTime())) val = d.toLocaleDateString(); else val = String(val); }
+      }
+      return val == null ? '' : String(val);
+    } catch (e) { console.error('token replace error', e); return ''; }
   });
 
-  // Process {% if %} and {% else %} blocks
-  const ifRegex = /{%\s*if\s+([^%]+)\s*%}([\s\S]*?){%\s*else\s*%}([\s\S]*?){%\s*endif\s*%}/g;
-  out = out.replace(ifRegex, (match, condition, ifTrue, ifFalse) => {
-    const value = resolvePath(condition.trim());
-    console.log(`Condition: ${condition.trim()}, Value: ${value}`);
-    return value ? ifTrue.trim() : ifFalse.trim();
-  });
-
-  // Process {% if %} blocks without {% else %}
-  const ifOnlyRegex = /{%\s*if\s+([^%]+)\s*%}([\s\S]*?){%\s*endif\s*%}/g;
-  out = out.replace(ifOnlyRegex, (match, condition, ifTrue) => {
-    const value = resolvePath(condition.trim());
-    console.log(`Condition: ${condition.trim()}, Value: ${value}`);
-    return value ? ifTrue.trim() : '';
-  });
-
-  return out.trim();
+  return out;
 };
 
 const AdminOrders = () => {
   const { orders, markOrderPacked, dispatchOrder, products, updateOrder, addOrder, removeOrder, inventory, currentUser, users, replaceOrder } = useInventory();
   const { toast } = useToast();
+  // Toggle template debug with URL param ?templateDebug=1
+  const templateDebug = (typeof window !== 'undefined') && (new URLSearchParams(window.location.search).get('templateDebug') === '1');
+  const escapeHtml = (str = '') => String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 
   const openPreviewWindow = (renderedHtml, autoPrint = false) => {
     const w = window.open('', '_blank');
@@ -364,23 +428,90 @@ const AdminOrders = () => {
     if (tpl) {
       // Prepare data for template
       const addressParts = (order.address || '').split(',').map(p => p.trim());
+      // Enrich template data with common fallback names so assigns resolve
+      const safeOrder = {
+        // include all original order fields to give templates wide coverage
+        ...order,
+        name: order.id,
+        created_at: order.createdAt || order.date || '',
+        // common alternate keys for weight/fees/tracking
+        weight: order.weight || order.weight_kg || order.total_weight || order.totalWeightKg || '',
+        weight_kg: order.weight_kg || order.weight || order.total_weight || '',
+        total_weight: order.total_weight || order.totalWeightKg || '',
+        packing_fee: order.packing_fee || order.packingFee || order.packing || order.itemPackingFee || 0,
+        box_fee: order.box_fee || order.boxFee || order.box_fee_amount || 0,
+        box_cutting: order.box_cutting || order.boxCutting || order.box_cutting_fee || 0,
+        tracking_fee: order.tracking_fee || order.trackingFee || order.tracking_fee_amount || 0,
+        total_fee: order.total_fee || order.total || order.total_calc || order.totalCalc || 0,
+        tracking_number: order.tracking_number || order.trackingNumber || order.trackingCode || order.tracking || '',
+        trackingCode: order.trackingCode || order.tracking || order.tracking_number || '',
+        // timeline variations
+        status_timeline: order.status_timeline || order.statusTimeline || order.timeline || order.status_timeline || [],
+      };
+
       const data = {
         shop: { name: merchant.companyName || merchant.name || 'Merchant' },
-        order: { name: order.id, created_at: order.createdAt || order.date || '' },
+        order: safeOrder,
         shipping_address: { 
-          name: order.customerName || '', 
+          name: order.customerName || order.customer_name || '', 
           address1: addressParts[0] || '', 
           address2: (addressParts.slice(1).join(', ') || ''), 
           city: order.city || '', 
           province: order.state || '', 
-          zip: order.pincode || '', 
-          country: 'India', 
-          phone: order.phone || '' 
+          zip: order.pincode || order.pin || '', 
+          country: order.country || 'India', 
+          phone: order.phone || order.mobile || '' 
         },
-        items: (order.items || []).map(i => ({ title: i.name || i.title || 'Item', quantity: i.quantity || 0 })),
-        deliveryPartner: order.deliveryPartner || ''
+        items: (order.items || []).map(i => ({
+          title: i.name || i.title || i.productName || 'Item',
+          name: i.name || i.title || i.productName || 'Item',
+          quantity: i.quantity || i.qty || 0,
+          packing: i.packing || i.packing_fee || i.itemPackingFee || 0,
+          transport: i.transport || i.transportation || i.transportationFee || i.transportFee || 0,
+          warehousing: i.warehousing || i.warehousingFee || i.warehousingRatePerKg || 0,
+          line_total: i.line_total || i.lineTotal || ( (i.price || i.unit_price || 0) * (i.quantity || i.qty || 0) )
+        })),
+        deliveryPartner: order.deliveryPartner || order.delivery_partner || ''
       };
-      const rendered = renderTemplate(tpl, data);
+      // Also provide common aliases used in templates
+      data.line_items = data.items;
+      data.fulfillment = data.fulfillment || {};
+      data.fulfillment.line_items = data.items;
+      if (!data.order.line_items) data.order.line_items = data.items;
+
+      // If items are missing, try fetching a fresh order document from server
+      try {
+        if ((!data.items || data.items.length === 0) && order && order.id) {
+          const serverOrder = await fetchOrderFromServer(order.id || order._id || order.orderId || order.id);
+          if (serverOrder) {
+            // Merge server order into safeOrder and rebuild items array
+            const srvItems = serverOrder.items || serverOrder.line_items || serverOrder.order_items || serverOrder.products || [];
+            if (Array.isArray(srvItems) && srvItems.length > 0) {
+              data.items = srvItems.map(i => ({
+                title: i.name || i.title || i.productName || 'Item',
+                name: i.name || i.title || i.productName || 'Item',
+                quantity: i.quantity || i.qty || i.count || 0,
+                packing: i.packing || i.packing_fee || i.itemPackingFee || 0,
+                transport: i.transport || i.transportation || i.transportationFee || i.transportFee || 0,
+                warehousing: i.warehousing || i.warehousingFee || i.warehousingRatePerKg || 0,
+                line_total: i.line_total || i.lineTotal || ((i.price || i.unit_price || 0) * (i.quantity || i.qty || 0))
+              }));
+              data.line_items = data.items;
+              data.fulfillment.line_items = data.items;
+              data.order = { ...data.order, ...(serverOrder || {}) };
+              if (!data.order.line_items) data.order.line_items = data.items;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to fetch fresh order for template rendering', e);
+      }
+
+      let rendered = renderTemplate(tpl, data);
+      if (templateDebug) {
+        console.log('Template debug data (single):', data);
+        rendered += `\n<hr><pre style="white-space:pre-wrap;background:#fff;border:1px solid #ccc;padding:8px;">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+      }
       // Open in new window and trigger print
       openPreviewWindow(rendered, true);
       return;
@@ -393,7 +524,11 @@ const AdminOrders = () => {
       state: order.state || '',
     };
     console.log('No merchant template found — generating default PDF for order:', augmentedOrder);
-    generateShippingLabelPDF(augmentedOrder, { companyName: merchant.companyName, id: merchant.id });
+    try {
+      await generateShippingLabelPDF(augmentedOrder, { companyName: merchant.companyName, id: merchant.id });
+    } catch (e) {
+      console.warn('Default PDF generation failed', e);
+    }
   };
 
 const openMarkItemsDialog = (order) => {
@@ -711,25 +846,86 @@ const openMarkItemsDialog = (order) => {
       tempDiv.style.fontFamily = 'Arial, sans-serif';
 
       if (tpl) {
-        // Render merchant template
+        // Render merchant template — enrich data with common fallback names
         const addressParts = (order.address || '').split(',').map(p => p.trim());
+        const safeOrder = {
+          ...order,
+          name: order.id,
+          created_at: order.createdAt || order.date || '',
+          weight: order.weight || order.weight_kg || order.total_weight || order.totalWeightKg || '',
+          weight_kg: order.weight_kg || order.weight || order.total_weight || '',
+          total_weight: order.total_weight || order.totalWeightKg || '',
+          packing_fee: order.packing_fee || order.packingFee || order.packing || order.itemPackingFee || 0,
+          box_fee: order.box_fee || order.boxFee || order.box_fee_amount || 0,
+          box_cutting: order.box_cutting || order.boxCutting || order.box_cutting_fee || 0,
+          tracking_fee: order.tracking_fee || order.trackingFee || order.tracking_fee_amount || 0,
+          total_fee: order.total_fee || order.total || order.total_calc || order.totalCalc || 0,
+          tracking_number: order.tracking_number || order.trackingNumber || order.trackingCode || order.tracking || '',
+          trackingCode: order.trackingCode || order.tracking || order.tracking_number || '',
+          status_timeline: order.status_timeline || order.statusTimeline || order.timeline || order.status_timeline || [],
+        };
+
         const data = {
           shop: { name: merchant.companyName || merchant.name || 'Merchant' },
-          order: { name: order.id, created_at: order.createdAt || order.date || '' },
+          order: safeOrder,
           shipping_address: { 
-            name: order.customerName || '', 
+            name: order.customerName || order.customer_name || '', 
             address1: addressParts[0] || '', 
             address2: (addressParts.slice(1).join(', ') || ''), 
             city: order.city || '', 
             province: order.state || '', 
-            zip: order.pincode || '', 
-            country: 'India', 
-            phone: order.phone || '' 
+            zip: order.pincode || order.pin || '', 
+            country: order.country || 'India', 
+            phone: order.phone || order.mobile || '' 
           },
-          items: (order.items || []).map(i => ({ title: i.name || i.title || 'Item', quantity: i.quantity || 0 })),
-          deliveryPartner: order.deliveryPartner || ''
+          items: (order.items || []).map(i => ({
+            title: i.name || i.title || i.productName || 'Item',
+            name: i.name || i.title || i.productName || 'Item',
+            quantity: i.quantity || i.qty || 0,
+            packing: i.packing || i.packing_fee || i.itemPackingFee || 0,
+            transport: i.transport || i.transportation || i.transportationFee || i.transportFee || 0,
+            warehousing: i.warehousing || i.warehousingFee || i.warehousingRatePerKg || 0,
+            line_total: i.line_total || i.lineTotal || ( (i.price || i.unit_price || 0) * (i.quantity || i.qty || 0) )
+          })),
+          deliveryPartner: order.deliveryPartner || order.delivery_partner || ''
         };
-        const rendered = renderTemplate(tpl, data);
+        // Provide common aliases so templates referencing different paths find items
+        data.line_items = data.items;
+        data.fulfillment = data.fulfillment || {};
+        data.fulfillment.line_items = data.items;
+        if (!data.order.line_items) data.order.line_items = data.items;
+        // If items missing, fetch fresh order and rebuild data before rendering
+        try {
+          if ((!data.items || data.items.length === 0) && order && order.id) {
+            const serverOrder = await fetchOrderFromServer(order.id || order._id || order.orderId || order.id);
+            if (serverOrder) {
+              const srvItems = serverOrder.items || serverOrder.line_items || serverOrder.order_items || serverOrder.products || [];
+              if (Array.isArray(srvItems) && srvItems.length > 0) {
+                data.items = srvItems.map(i => ({
+                  title: i.name || i.title || i.productName || 'Item',
+                  name: i.name || i.title || i.productName || 'Item',
+                  quantity: i.quantity || i.qty || i.count || 0,
+                  packing: i.packing || i.packing_fee || i.itemPackingFee || 0,
+                  transport: i.transport || i.transportation || i.transportationFee || i.transportFee || 0,
+                  warehousing: i.warehousing || i.warehousingFee || i.warehousingRatePerKg || 0,
+                  line_total: i.line_total || i.lineTotal || ((i.price || i.unit_price || 0) * (i.quantity || i.qty || 0))
+                }));
+                data.line_items = data.items;
+                data.fulfillment.line_items = data.items;
+                data.order = { ...data.order, ...(serverOrder || {}) };
+                if (!data.order.line_items) data.order.line_items = data.items;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to fetch fresh order for group template rendering', e);
+        }
+
+        let rendered = renderTemplate(tpl, data);
+        if (templateDebug) {
+          console.log('Template debug data (group):', data);
+          rendered += `\n<hr><pre style="white-space:pre-wrap;background:#fff;border:1px solid #ccc;padding:8px;">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+        }
         tempDiv.innerHTML = rendered;
       } else {
         // Fallback: create simple HTML template
@@ -1098,18 +1294,36 @@ const openMarkItemsDialog = (order) => {
 
   // Fetch a fresh order document directly from the backend (reads DB)
   const fetchOrderFromServer = async (orderId) => {
-    try {
-      const res = await fetch(`https://forwokbackend-1.onrender.com/api/orders-debug/${orderId}`);
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`Failed to fetch order ${orderId}: ${res.status} ${res.statusText} ${txt}`);
+    const base = 'https://forwokbackend-1.onrender.com';
+    const candidates = [
+      `${base}/api/orders-debug/${orderId}`,
+      `${base}/api/orders/${orderId}`,
+      `${base}/api/orders/${orderId}/full`,
+      `${base}/api/orders/${orderId}?full=true`
+    ];
+    for (const url of candidates) {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) {
+          // continue to next candidate
+          const txt = await res.text().catch(() => '');
+          console.warn(`fetchOrderFromServer: ${url} returned ${res.status} ${res.statusText} ${txt}`);
+          continue;
+        }
+        const body = await res.json().catch(() => null);
+        if (!body) continue;
+        // body may be { order: {...} } or the order object directly
+        const maybeOrder = body.order ? body.order : body;
+        if (maybeOrder && (Array.isArray(maybeOrder.items) || Array.isArray(maybeOrder.line_items))) return maybeOrder;
+        // if order exists but items missing, still return it for further inspection
+        if (maybeOrder && maybeOrder.id) return maybeOrder;
+      } catch (err) {
+        console.warn('fetchOrderFromServer candidate error', err);
+        continue;
       }
-      const body = await res.json();
-      return body && body.order ? body.order : null;
-    } catch (err) {
-      console.error('fetchOrderFromServer error', err);
-      return null;
     }
+    console.error('fetchOrderFromServer: all candidates failed for', orderId);
+    return null;
   };
 
   // Fetch PackingFee document for an order from the backend

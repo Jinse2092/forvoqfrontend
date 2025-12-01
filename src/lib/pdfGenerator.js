@@ -1,48 +1,149 @@
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 
-export function generateShippingLabelPDF(order, merchant) {
-  console.log('Generating shipping label for order:', order);
-  console.log('City:', order.city, 'State:', order.state);
-  const doc = new jsPDF();
-  doc.setFontSize(16);
+// Generate a basic shipping label PDF, open a preview window and trigger print.
+// Returns a Promise that resolves with the generated Blob.
+export async function generateShippingLabelPDF(order = {}, merchant = {}) {
+  try {
+    // create document in points for predictable sizing
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const margin = 36; // 0.5in margins
+    const pageWidth = doc.internal.pageSize.getWidth();
 
-  // Left side - ORDER ID and FROM (merchant info)
-  doc.setFontSize(12);
-  doc.setFont('helvetica', 'bold');
-  doc.text(`ORDER ID: ${order.id}`, 10, 40);
+    // Header
+    doc.setFontSize(14);
+    doc.setFont(undefined, 'bold');
+    doc.text(merchant.companyName || 'Merchant', margin, 50);
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'normal');
+    if (merchant.address) doc.text(String(merchant.address), margin, 64);
+    if (merchant.phone) doc.text(`Phone: ${merchant.phone}`, margin, 78);
 
-  doc.text('FROM:', 10, 55);
-  doc.text(`Name: ${merchant.companyName}`, 10, 65);
-  doc.text(`ID: ${merchant.id}`, 10, 75);
-  doc.text('Address: Kaiprumpattu House, kidangoor p.o', 10, 85);
-  doc.text('kovattu temple,kidangoor', 10, 95);
-  doc.text(`City: Angamaly State: Kerala PIN: 683572`, 10, 105);
-  doc.text('Phone: 7902819040', 10, 115);
+    // Order meta
+    const metaX = pageWidth - margin - 220;
+    doc.setFont(undefined, 'bold');
+    doc.text(`ORDER: ${order.id || order.name || ''}`, metaX, 50);
+    doc.setFont(undefined, 'normal');
+    const created = order.created_at || order.createdAt || order.date || '';
+    const createdStr = created ? new Date(created).toLocaleString() : '';
+    if (createdStr) doc.text(`Date: ${createdStr}`, metaX, 66);
+    if (order.tracking_number) doc.text(`Tracking: ${order.tracking_number}`, metaX, 82);
 
-  // Right side - TO (customer info)
-  const rightX = 140;
-  doc.setFont('helvetica', 'bold');
-  doc.text('TO:', rightX, 55);
-  doc.text(`Name: ${order.customerName}`, rightX, 65);
+    // From / To blocks
+    let y = 110;
+    doc.setFont(undefined, 'bold');
+    doc.text('FROM', margin, y);
+    doc.text('TO', metaX, y);
+    y += 14;
 
-  let y = 75;
-  const lineHeight = 7;
-  const maxWidth = 50;
+    doc.setFont(undefined, 'normal');
+    // FROM details (merchant)
+    const fromLines = [];
+    if (merchant.companyName) fromLines.push(merchant.companyName);
+    if (merchant.id) fromLines.push(`ID: ${merchant.id}`);
+    if (merchant.address) fromLines.push(merchant.address);
+    if (merchant.city || merchant.state || merchant.pincode) fromLines.push(`${merchant.city || ''}${merchant.city ? ', ' : ''}${merchant.state || ''} ${merchant.pincode || ''}`.trim());
+    if (merchant.phone) fromLines.push(`Phone: ${merchant.phone}`);
+    doc.text(fromLines, margin, y);
 
-  // Address
-  const addressLines = doc.splitTextToSize(`Address: ${order.address}`, maxWidth);
-  doc.text(addressLines, rightX, y);
-  y += addressLines.length * lineHeight;
+    // TO details (customer)
+    const toLines = [];
+    if (order.customerName) toLines.push(order.customerName);
+    if (order.address) toLines.push(order.address);
+    const cityLine = `${order.city || ''}${order.city ? ', ' : ''}${order.state || ''}${order.pincode ? ' — PIN: ' + order.pincode : ''}`.trim();
+    if (cityLine) toLines.push(cityLine);
+    if (order.phone) toLines.push(`Phone: ${order.phone}`);
+    doc.text(toLines, metaX, y);
 
-  // City/State/Pin
-  const cityStatePin = `City: ${order.city || ''} State: ${order.state || ''} PIN: ${order.pincode || ''}`;
-  const cityStatePinLines = doc.splitTextToSize(cityStatePin, maxWidth);
-  doc.text(cityStatePinLines, rightX, y);
-  y += cityStatePinLines.length * lineHeight;
+    // Items table
+    const items = Array.isArray(order.items) ? order.items : (order.line_items || order.order_items || []);
+    const tableY = y + Math.max(fromLines.length, toLines.length) * 12 + 18;
+    doc.setFont(undefined, 'bold');
+    doc.text('Items', margin, tableY);
+    doc.setFont(undefined, 'normal');
 
-  // Phone
-  const phoneLines = doc.splitTextToSize(`Phone: ${order.phone || ''}`, maxWidth);
-  doc.text(phoneLines, rightX, y);
+    const startY = tableY + 12;
+    const col1 = margin;
+    const col2 = pageWidth - margin - 120;
+    const col3 = pageWidth - margin - 40;
 
-  doc.save(`shipping-label-${order.id}.pdf`);
+    // Header row
+    doc.setFontSize(10);
+    doc.text('Description', col1, startY);
+    doc.text('SKU', col2, startY);
+    doc.text('Qty', col3, startY, { align: 'right' });
+
+    let rowY = startY + 12;
+    const maxRowWidth = col2 - col1 - 8;
+    let totalQty = 0;
+    for (const it of items) {
+      const title = String(it.title || it.name || it.productName || 'Item');
+      const sku = String(it.sku || it.productId || '');
+      const qty = Number(it.quantity || it.qty || it.count || 0);
+      totalQty += qty;
+
+      // wrap description
+      const descLines = doc.splitTextToSize(title, maxRowWidth);
+      doc.text(descLines, col1, rowY);
+      // SKU and qty on same row as first desc line
+      doc.text(sku, col2, rowY);
+      doc.text(String(qty), col3, rowY, { align: 'right' });
+      rowY += descLines.length * 12 + 6;
+      // add page if near bottom
+      if (rowY > doc.internal.pageSize.getHeight() - margin - 60) {
+        doc.addPage();
+        rowY = margin + 20;
+      }
+    }
+
+    // Totals
+    doc.setFont(undefined, 'bold');
+    doc.text(`Total items: ${totalQty}`, col3, rowY, { align: 'right' });
+
+    // Footer
+    const footerY = doc.internal.pageSize.getHeight() - margin;
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'normal');
+    doc.text(`Print generated by ${merchant.companyName || 'Merchant'} · Generated on ${new Date().toLocaleString()}`, margin, footerY);
+
+    // Output as blob and open in preview window
+    const blob = doc.output('blob');
+    const url = URL.createObjectURL(blob);
+
+    // Try to open a new window/tab with embedded PDF for preview and print
+    const w = window.open('', '_blank');
+    if (w) {
+      try {
+        w.document.title = `Shipping Label - ${order.id || ''}`;
+        w.document.body.style.margin = '0';
+        const embed = w.document.createElement('embed');
+        embed.src = url;
+        embed.type = 'application/pdf';
+        embed.width = '100%';
+        embed.height = '100%';
+        w.document.body.appendChild(embed);
+        // attempt to trigger print after a short delay
+        setTimeout(() => {
+          try { w.focus(); w.print(); } catch (e) { /* ignore print errors */ }
+        }, 600);
+      } catch (e) {
+        // fallback: navigate window to blob URL
+        try { w.location.href = url; } catch (e2) { console.error('Could not write preview window', e2); }
+      }
+    } else {
+      // popup blocked: open in current window as fallback
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.click();
+    }
+
+    // revoke the object URL after some time
+    setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+
+    return blob;
+  } catch (err) {
+    console.error('generateShippingLabelPDF error', err);
+    throw err;
+  }
 }

@@ -504,7 +504,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const fileToBase64 = (file) => {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -570,7 +570,11 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
       console.log('Closing dialog before adding order');
       setIsDialogOpen(false);
       addOrder(newOrder);
-      generateShippingLabelPDF(newOrder, { companyName: currentUser.companyName || '', id: currentUser.id || '' });
+      try {
+        await generateShippingLabelPDF(newOrder, { companyName: currentUser.companyName || '', id: currentUser.id || '' });
+      } catch (e) {
+        console.warn('Failed to generate shipping PDF', e);
+      }
       // Ensure dialog close runs after other code
       setTimeout(() => {
         console.log('Closing dialog after adding order');
