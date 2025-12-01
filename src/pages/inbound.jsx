@@ -101,8 +101,6 @@ const Inbound = () => {
       return sum + (item.quantity * (product?.weightKg || 0));
     }, 0);
 
-    const fee = Math.ceil(Math.max(1, totalWeightKg) / 10) * 150; // Min fee 150, charge per 10kg block
-
     const newInbound = {
       id: `inb-${Date.now()}`,
       merchantId: currentUser.id,
@@ -112,12 +110,11 @@ const Inbound = () => {
       deliveryLocation: inboundDetails.type === 'outbound' ? inboundDetails.deliveryLocation : null,
       type: inboundDetails.type,
       status: 'pending',
-      fee,
       date: new Date().toISOString().split('T')[0],
     };
 
     addInboundRequest(newInbound);
-    toast({ title: 'Inventory Request Added', description: `${inboundDetails.type === 'inbound' ? 'Pickup' : 'Delivery'} scheduled. Estimated fee: ₹${fee.toFixed(2)}` });
+    toast({ title: 'Inventory Request Added', description: `${inboundDetails.type === 'inbound' ? 'Pickup' : 'Delivery'} scheduled.` });
     setIsDialogOpen(false);
     setInboundDetails({ items: [{ productId: '', quantity: 0 }], pickupLocation: '', deliveryLocation: '', type: 'inbound' });
   };

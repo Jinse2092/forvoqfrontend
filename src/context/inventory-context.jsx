@@ -74,7 +74,7 @@ export const InventoryProvider = ({ children }) => {
       setTransactions(results[2]);
       setOrders(ordersWithCityState);
 
-      // Calculate totalWeightKg and fee for each inbound
+      // Calculate totalWeightKg for each inbound (fee removed)
       const inboundsWithWeight = results[4].map(inbound => {
         const totalWeightKg = inbound.items.reduce((sum, item) => {
           const product = results[0].find(p => p.id === item.productId);
@@ -88,13 +88,9 @@ export const InventoryProvider = ({ children }) => {
           return sum + (item.quantity * weightToUse);
         }, 0);
 
-        // Calculate fee: ₹5 per 500g (0.5kg), round up
-        const fee = Math.ceil(totalWeightKg / 0.5) * 5;
-
         return {
           ...inbound,
           totalWeightKg,
-          fee
         };
       });
 
@@ -676,17 +672,8 @@ export const InventoryProvider = ({ children }) => {
            });
          });
 
-         addTransaction({
-           merchantId: savedInbound.merchantId,
-           inboundId: savedInbound.id,
-           productId: null,
-           type: 'inbound_fee',
-           quantity: 1,
-           notes: `Inbound fee for shipment ${savedInbound.id}`,
-           amount: savedInbound.fee
-         });
-
-         toast({ title: "Inbound Received", description: `Inbound ${inboundId} marked as completed and inventory updated.` });
+        // Fee transactions removed: no inbound fee recorded
+        toast({ title: "Inbound Received", description: `Inbound ${inboundId} marked as completed and inventory updated.` });
        } else if (savedInbound.type === 'outbound') {
          let inventoryUpdated = true;
          let updatedInventory = [...inventory];
@@ -713,17 +700,8 @@ export const InventoryProvider = ({ children }) => {
 
          setInventory(updatedInventory);
 
-         addTransaction({
-           merchantId: savedInbound.merchantId,
-           inboundId: savedInbound.id,
-           productId: null,
-           type: 'outbound_fee',
-           quantity: 1,
-           notes: `Outbound fee for shipment ${savedInbound.id}`,
-           amount: savedInbound.fee
-         });
-
-         toast({ title: "Outbound Processed", description: `Outbound ${inboundId} marked as completed and inventory updated.` });
+        // Fee transactions removed: no outbound fee recorded
+        toast({ title: "Outbound Processed", description: `Outbound ${inboundId} marked as completed and inventory updated.` });
        }
      } catch (error) {
        toast({ title: "Error", description: "Error updating inbound status on server.", variant: "destructive" });

@@ -20,6 +20,7 @@ import AdminMerchantManagement from './pages/admin/merchant-management.jsx';
 import AdminInbounds from './pages/admin/inbounds.jsx';
 import AdminManagement from './pages/admin/management.jsx';
 import AdminPayments from './pages/admin/payments.jsx';
+import AdminMerchantPayments from './pages/admin/merchant-payments.jsx';
 import AdminReturns from './pages/admin/returns.jsx';
 import { InventoryProvider, useInventory } from './context/inventory-context.jsx';
 
@@ -69,6 +70,7 @@ function App() {
                       <Route path="/admin/orders" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminOrders /></ProtectedRoute>} />
                       <Route path="/admin/inbounds" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminInbounds /></ProtectedRoute>} />
                       <Route path="/admin/payments" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminPayments /></ProtectedRoute>} />
+                      <Route path="/admin/merchant-payments/:id" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminMerchantPayments /></ProtectedRoute>} />
                       <Route path="/admin/returns" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminReturns /></ProtectedRoute>} />
                       <Route path="/admin/management" element={<ProtectedRoute allowedRoles={['superadmin']}><AdminManagement /></ProtectedRoute>} />
 

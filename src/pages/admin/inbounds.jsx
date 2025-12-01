@@ -125,7 +125,7 @@ const TestAdminInbounds = () => {
                   <TableHead>Pickup Location</TableHead>
                   <TableHead>Phone Number</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Fee (₹)</TableHead>
+                  {/* Fee column removed */}
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -157,7 +157,7 @@ const TestAdminInbounds = () => {
                           : (inb.pickupLocation && inb.pickupLocation.phone ? inb.pickupLocation.phone : 'N/A')}
                       </TableCell>
                       <TableCell>{inb.status}</TableCell>
-                      <TableCell>{inb.fee}</TableCell>
+                      {/* Fee removed */}
                       <TableCell className="space-x-2">
                         {inb.status === 'pending' && (
                           <Button onClick={() => handleInitiatePickup(inb.id)} variant="primary" size="sm">Initiate Pickup</Button>

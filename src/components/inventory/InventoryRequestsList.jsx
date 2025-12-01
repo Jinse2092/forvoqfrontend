@@ -22,7 +22,6 @@ const InventoryRequestsList = ({ requests, products }) => {
             <TableHead className="text-right">Weight (kg)</TableHead>
             <TableHead>Pickup/Delivery Location</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead className="text-right">Fee (₹)</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -54,7 +53,7 @@ const InventoryRequestsList = ({ requests, products }) => {
                       {request.status}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right">{request.fee}</TableCell>
+                  {/* Fee column removed */}
                 </motion.tr>
               );
             })}

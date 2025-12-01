@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useInventory } from '../../context/inventory-context.jsx';
 import { Card, CardContent, CardHeader } from '../../components/ui/card.jsx';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table.jsx';
@@ -17,6 +18,8 @@ const AdminPayments = () => {
   const demoCurrentUser = { id: 'admin-1', role: 'admin' };
 
   const { transactions = demoTransactions, users = demoUsers, currentUser = demoCurrentUser } = useInventory();
+  const [selectedMerchantId, setSelectedMerchantId] = useState('');
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     merchantId: '',
     amount: '',
@@ -117,6 +120,12 @@ const AdminPayments = () => {
     return acc;
   }, {});
 
+  // If a merchant is selected, only show that merchant's entries
+  const filteredMerchantEntries = Object.entries(paymentsByMerchant).filter(([merchantId]) => {
+    if (!selectedMerchantId) return true;
+    return merchantId === selectedMerchantId;
+  });
+
   // Get merchant name by ID
   const getMerchantName = (merchantId) => {
     const user = users.find(u => u.id === merchantId);
@@ -161,7 +170,28 @@ const AdminPayments = () => {
   return (
     <div className="p-2 sm:p-6 space-y-6">
       <h1 className="text-4xl font-extrabold mb-8 text-center text-gray-900 dark:text-gray-100">Merchant Payments</h1>
-
+      {/* Merchant selector: choose a merchant to view only their payments */}
+      <div className="max-w-4xl mx-auto mb-4 flex items-center gap-4">
+        <label className="text-sm font-medium">Select Merchant:</label>
+        <select
+          value={selectedMerchantId}
+          onChange={(e) => setSelectedMerchantId(e.target.value)}
+          className="border rounded px-3 py-2"
+        >
+          <option value="">-- All Merchants --</option>
+          {users.filter(u => u.role === 'merchant').map(u => (
+            <option key={u.id} value={u.id}>{u.companyName || u.id}</option>
+          ))}
+        </select>
+        {selectedMerchantId && (
+          <button
+            onClick={() => navigate(`/admin/merchant-payments/${selectedMerchantId}`)}
+            className="px-3 py-2 bg-blue-600 text-white rounded"
+          >
+            Open Merchant Page
+          </button>
+        )}
+      </div>
       <Card className="max-w-4xl mx-auto p-6 shadow-lg bg-white dark:bg-gray-800 rounded-lg">
         <form onSubmit={handleSubmit} className="flex flex-wrap gap-4 justify-center items-center">
           {/* Searchable merchant select */}
@@ -294,72 +324,7 @@ const AdminPayments = () => {
         </div>
       )}
 
-      {/* Payments Table */}
-      {Object.keys(paymentsByMerchant).length === 0 ? (
-        <p className="text-center text-gray-600 dark:text-gray-400">No payments found.</p>
-      ) : (
-        <div className="max-w-6xl mx-auto space-y-6">
-          {Object.entries(paymentsByMerchant).map(([merchantId, txns]) => {
-            const filteredTxns = filterDuplicateDispatchFees(txns);
-            const totalAmount = calculateTotal(filteredTxns);
-            const settlementFees = calculateTotal(filteredTxns.filter(isSettlementFee));
-            return (
-              <Card key={merchantId} className="shadow-lg bg-white dark:bg-gray-800 rounded-lg">
-                <CardHeader className="flex justify-between items-start">
-                  <div>
-                    <div>
-                      <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{getMerchantName(merchantId)}</h2>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">{merchantId}</p>
-                    </div>
-                {/* Calculate total payments excluding received payments */}
-                <p>Total Payments: ₹{calculateTotal(filteredTxns.filter(txn => txn.type !== 'received_payment')).toFixed(2)}</p>
-                <p className="font-medium">
-                  Due Payments: ₹{(settlementFees - (receivedPaymentsByMerchant[merchantId]?.reduce((sum, rp) => sum + rp.amount, 0) || 0)).toFixed(2)}
-                </p>
-                  </div>
-                  <div>
-                    <button
-                      onClick={() => downloadExcel(merchantId, filteredTxns)}
-                      className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                    >
-                      Download Excel
-                    </button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead className="text-right align-middle">Amount (₹)</TableHead>
-                        <TableHead className="text-right align-middle">Quantity</TableHead>
-                        <TableHead>Notes</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredTxns.map(txn => {
-                        const isDispatchFee = txn.type === 'dispatch_fee';
-                        const quantity = isDispatchFee ? txn.quantity : '-';
-                        const pricePerUnit = isDispatchFee && txn.quantity > 0 ? (txn.amount / txn.quantity).toFixed(2) : '-';
-                        return (
-                          <TableRow key={txn.id}>
-                            <TableCell>{txn.date || '-'}</TableCell>
-                            <TableCell>{txn.type}</TableCell>
-                            <TableCell className="text-right align-middle">{txn.amount?.toFixed(2) || '-'}</TableCell>
-                            <TableCell className="text-right align-middle">{quantity}</TableCell>
-                            <TableCell>{txn.notes || '-'}</TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+      {/* Merchant-wise payments table hidden per request */}
     </div>
   );
 };
