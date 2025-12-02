@@ -1683,7 +1683,7 @@ const openMarkItemsDialog = (order) => {
     <div className="p-2 sm:p-6 space-y-6">
       {/* Tracking Code Dialog */}
       <Dialog open={isTrackingCodeDialogOpen} onOpenChange={setIsTrackingCodeDialogOpen}>
-        <DialogContent className="max-w-2xl" aria-describedby="tracking-code-description">
+        <DialogContent className="max-w-full sm:max-w-2xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto" aria-describedby="tracking-code-description">
           <DialogTitle>Enter Tracking Codes</DialogTitle>
           <DialogDescription id="tracking-code-description">
             Provide tracking codes for the selected orders.
@@ -1710,7 +1710,7 @@ const openMarkItemsDialog = (order) => {
 
       {/* Weight Dialog (for Mark Packed) */}
       <Dialog open={isWeightDialogOpen} onOpenChange={setIsWeightDialogOpen}>
-        <DialogContent className="max-w-2xl" aria-describedby="weight-dialog-description">
+        <DialogContent className="max-w-full sm:max-w-2xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto" aria-describedby="weight-dialog-description">
           <DialogTitle>Enter Weights / Mark Packed</DialogTitle>
           <DialogDescription id="weight-dialog-description">
             Enter total weight (kg) for the selected orders, then click Mark Packed.
@@ -1727,7 +1727,7 @@ const openMarkItemsDialog = (order) => {
                     value={weights[order.id] || ''}
                     onChange={(e) => setWeights((prev) => ({ ...prev, [order.id]: e.target.value }))}
                     placeholder="Weight (kg)"
-                    className="w-40"
+                    className="w-full sm:w-40"
                   />
                 </div>
                 <div className="flex items-center gap-2">
@@ -1739,9 +1739,9 @@ const openMarkItemsDialog = (order) => {
                     value={boxFees[order.id] ?? (packingFeesByOrder && packingFeesByOrder[order.id] && packingFeesByOrder[order.id].boxFee !== undefined ? String(packingFeesByOrder[order.id].boxFee) : (order.boxFee !== undefined ? String(order.boxFee) : ''))}
                     onChange={(e) => setBoxFees((prev) => ({ ...prev, [order.id]: e.target.value }))}
                     placeholder="e.g. 10.00"
-                    className="w-32"
+                    className="w-full sm:w-32"
                   />
-                  <Label htmlFor={`boxCutting-${order.id}`} className="flex items-center gap-1">
+                      <Label htmlFor={`boxCutting-${order.id}`} className="flex items-center gap-1">
                     <input
                       id={`boxCutting-${order.id}`}
                       type="checkbox"
@@ -1763,7 +1763,7 @@ const openMarkItemsDialog = (order) => {
 
       {/* Order Details Dialog */}
       <Dialog open={isOrderDetailsDialogOpen} onOpenChange={setIsOrderDetailsDialogOpen}>
-        <DialogContent className="max-w-full sm:max-w-lg p-4 sm:p-6 bg-white rounded-lg shadow-md" aria-describedby="order-details-description">
+        <DialogContent className="max-w-full sm:max-w-2xl lg:max-w-3xl p-4 sm:p-6 bg-white rounded-lg shadow-md max-h-[90vh] overflow-y-auto" aria-describedby="order-details-description">
             <DialogTitle className="text-xl font-bold text-gray-800">Order Details</DialogTitle>
             <DialogDescription id="order-details-description" className="text-sm text-gray-600 mb-4">
               Details for Order ID: <span className="font-medium text-gray-800">{orderDetails?.id || 'N/A'}</span>
@@ -1918,17 +1918,17 @@ const openMarkItemsDialog = (order) => {
               </div>
             </div>
 
-            <div className="mt-4">
+                <div className="mt-4">
               <div className="text-xs text-gray-500 mb-2">Items</div>
               <ul className="divide-y divide-gray-100 bg-white rounded shadow-sm">
                 {(orderDetails?.items || []).length === 0 ? (
                   <li className="px-4 py-3 italic text-gray-400">No items marked</li>
                 ) : (
                   (orderDetails?.items || []).map((item, index) => (
-                    <li key={index} className="flex justify-between items-center px-4 py-3">
-                      <span className="text-gray-800">{item.name || item.title || 'Item'}</span>
-                      <span className="text-sm text-gray-600">x{item.quantity || 1}</span>
-                    </li>
+                        <li key={index} className="flex flex-col sm:flex-row justify-between items-center px-4 py-3">
+                          <span className="text-gray-800">{item.name || item.title || 'Item'}</span>
+                          <span className="text-sm text-gray-600 mt-2 sm:mt-0">x{item.quantity || 1}</span>
+                        </li>
                   ))
                 )}
               </ul>
@@ -2170,7 +2170,7 @@ const openMarkItemsDialog = (order) => {
 
        {/* Add Order Manual Entry Dialog */}
        <Dialog open={isAddOrderOpen} onOpenChange={setIsAddOrderOpen}>
-         <DialogContent className="max-w-lg" aria-describedby="add-order-manual-desc">
+        <DialogContent className="max-w-full sm:max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto" aria-describedby="add-order-manual-desc">
            <DialogTitle>Add Order - Manual Entry</DialogTitle>
            <DialogDescription id="add-order-manual-desc">
              Add order manually.
@@ -2285,37 +2285,51 @@ const openMarkItemsDialog = (order) => {
                       </div>
                        <div>
                          <Label>Items</Label>
-                         {newItems.slice(0, newItemCount).map((item, index) => (
-                           <div key={index} className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 mb-2 space-y-2 sm:space-y-0">
-                             <Select
-                               value={item.productId}
-                               onValueChange={(value) => handleNewItemChange(index, 'productId', value)}
-                               className="flex-grow"
-                             >
-                               <SelectTrigger className="w-full">
-                                 <SelectValue placeholder="Select product" />
-                               </SelectTrigger>
-                               <SelectContent>
-                                 {products
-                                   .filter(product => product.merchantId === selectedMerchantId)
-                                   .map(product => (
-                                     <SelectItem key={product.id} value={product.id}>
-                                       {product.name}
-                                     </SelectItem>
-                                   ))}
-                               </SelectContent>
-                             </Select>
-                             <Input
-                               type="number"
-                               min="1"
-                               placeholder="Quantity"
-                               value={item.quantity}
-                               onChange={(e) => handleNewItemChange(index, 'quantity', e.target.value)}
-                               className="w-20"
-                             />
-                             <Button variant="outline" onClick={() => handleRemoveNewItem(index)}>Remove</Button>
-                           </div>
-                         ))}
+                         {newItems.slice(0, newItemCount).map((item, index) => {
+                           const merchantProducts = selectedMerchantId
+                             ? products.filter(p => p.merchantId === selectedMerchantId)
+                             : products;
+                           const resolvedName = item.name || (item.productId ? (products.find(p => p.id === item.productId)?.name || '') : '');
+                           const query = (item.name || '').toLowerCase();
+                           const suggestions = query.length > 0
+                             ? merchantProducts.filter(p => p.name.toLowerCase().includes(query)).slice(0, 8)
+                             : [];
+                           return (
+                             <div key={index} className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 mb-2 space-y-2 sm:space-y-0">
+                               <div className="flex-grow relative">
+                                 <Input
+                                   value={resolvedName}
+                                   onChange={(e) => {
+                                     const val = e.target.value;
+                                     handleNewItemChange(index, 'name', val);
+                                     const match = merchantProducts.find(p => p.name === val);
+                                     handleNewItemChange(index, 'productId', match ? match.id : '');
+                                   }}
+                                   placeholder={selectedMerchantId ? "Type product name to search" : "Select merchant to filter products"}
+                                   className="w-full"
+                                 />
+                                 {suggestions.length > 0 && (
+                                   <ul className="absolute z-50 mt-1 w-full max-h-40 overflow-auto rounded border bg-white shadow">
+                                     {suggestions.map(p => (
+                                       <li key={p.id} className="px-3 py-2 hover:bg-gray-100 cursor-pointer" onMouseDown={(ev) => { ev.preventDefault(); handleNewItemChange(index, 'name', p.name); handleNewItemChange(index, 'productId', p.id); }}>
+                                         {p.name}
+                                       </li>
+                                     ))}
+                                   </ul>
+                                 )}
+                               </div>
+                               <Input
+                                 type="number"
+                                 min="1"
+                                 placeholder="Quantity"
+                                 value={item.quantity}
+                                 onChange={(e) => handleNewItemChange(index, 'quantity', e.target.value)}
+                                 className="w-full sm:w-20"
+                               />
+                               <Button variant="outline" onClick={() => handleRemoveNewItem(index)}>Remove</Button>
+                             </div>
+                           );
+                         })}
                          <Button variant="outline" onClick={handleAddNewItem}>Add Item</Button>
                        </div>
                        <div className="mt-4 p-2 border rounded bg-gray-50 dark:bg-gray-800">
@@ -2376,7 +2390,7 @@ const openMarkItemsDialog = (order) => {
 
        {/* Existing Mark Products Dialog */}
        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-         <DialogContent className="max-w-md" aria-describedby="mark-products-desc">
+        <DialogContent className="max-w-full sm:max-w-md p-4 sm:p-6 max-h-[90vh] overflow-y-auto" aria-describedby="mark-products-desc">
            <DialogTitle>Mark Products and Quantity</DialogTitle>
            <DialogDescription id="mark-products-desc">
              Select products and specify quantities for the uploaded order.
@@ -2384,27 +2398,39 @@ const openMarkItemsDialog = (order) => {
            <div className="space-y-4 mt-4">
              {selectedItems.map((item, index) => (
                <div key={index} className="flex items-center space-x-2">
-                 <Select
-                   value={item.productId}
-                   onValueChange={(value) => {
-                     const newItems = [...selectedItems];
-                     newItems[index].productId = value;
-                     setSelectedItems(newItems);
-                   }}
-                 >
-                   <SelectTrigger className="w-48">
-                     <SelectValue placeholder="Select product" />
-                   </SelectTrigger>
-                   <SelectContent>
-                     {products
-                       .filter(product => product.merchantId === selectedOrder?.merchantId)
-                       .map(product => (
-                         <SelectItem key={product.id} value={product.id}>
-                           {product.name}
-                         </SelectItem>
-                       ))}
-                   </SelectContent>
-                 </Select>
+                 {/* Autocomplete input for Mark Products dialog */}
+                 <div className="relative w-48">
+                   {(() => {
+                     const merchantProducts = selectedOrder?.merchantId ? products.filter(p => p.merchantId === selectedOrder.merchantId) : products;
+                     const currentName = item.name || (item.productId ? (products.find(p => p.id === item.productId)?.name || '') : '');
+                     const q = (item.name || '').toLowerCase();
+                     const suggestions = q.length > 0 ? merchantProducts.filter(p => p.name.toLowerCase().includes(q)).slice(0, 8) : [];
+                     return (
+                       <>
+                         <Input
+                           value={currentName}
+                           onChange={(e) => {
+                             const val = e.target.value;
+                             const newItems = [...selectedItems];
+                             newItems[index] = { ...newItems[index], name: val };
+                             setSelectedItems(newItems);
+                           }}
+                           placeholder={selectedOrder?.merchantId ? 'Type product name to search' : 'Select merchant to filter products'}
+                           className="w-full"
+                         />
+                         {suggestions.length > 0 && (
+                           <ul className="absolute z-50 mt-1 w-full max-h-40 overflow-auto rounded border bg-white shadow">
+                             {suggestions.map(p => (
+                               <li key={p.id} className="px-3 py-2 hover:bg-gray-100 cursor-pointer" onMouseDown={(ev) => { ev.preventDefault(); const newItems = [...selectedItems]; newItems[index] = { ...newItems[index], productId: p.id, name: p.name }; setSelectedItems(newItems); }}>
+                                 {p.name}
+                               </li>
+                             ))}
+                           </ul>
+                         )}
+                       </>
+                     );
+                   })()}
+                 </div>
                  <Input
                    type="number"
                    min="1"
@@ -2413,7 +2439,7 @@ const openMarkItemsDialog = (order) => {
                      const qty = parseInt(e.target.value, 10);
                      handleItemChange(item.productId, qty);
                    }}
-                   className="w-20"
+                   className="w-full sm:w-20"
                  />
                  <Button variant="outline" onClick={() => {
                    // Remove this item

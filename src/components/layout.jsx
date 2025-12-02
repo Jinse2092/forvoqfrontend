@@ -76,7 +76,7 @@ const Layout = ({ children }) => {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex min-h-screen overflow-hidden">
       <div className="fixed top-4 left-4 z-50 md:hidden">
         <Button
           variant="outline"
@@ -169,8 +169,8 @@ const Layout = ({ children }) => {
         </div>
       </motion.div>
 
-      <div className="flex-1 overflow-y-auto md:ml-64">
-        <main className="p-6 md:p-8">{children}</main>
+      <div className="flex-1 overflow-y-auto md:ml-64 pt-16 md:pt-0">
+        <main className="p-4 md:p-8">{children}</main>
       </div>
     </div>
   );

@@ -1595,33 +1595,57 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                 </div>
                 <div>
                   <Label>Item</Label>
-                  {items.map((item, index) => (
-                    <div key={index} className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-x-2 mb-2">
-                      <Select
-                        value={item.productId}
-                        onValueChange={value => handleItemChange(index, 'productId', value)}
-                      >
-                        <SelectTrigger className="w-full sm:w-48">
-                          <SelectValue placeholder="Select product" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {products.map(product => (
-                            <SelectItem key={product.id} value={product.id}>
-                              {product.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Input
-                        type="number"
-                        min="1"
-                        value={item.quantity}
-                        onChange={e => handleItemChange(index, 'quantity', e.target.value)}
-                        className="w-full sm:w-20"
-                      />
-                      <Button className="w-full sm:w-auto" variant="outline" onClick={() => handleRemoveItem(index)}>Remove</Button>
-                    </div>
-                  ))}
+                  {items.map((item, index) => {
+                    const merchantProducts = products.filter(p => p.merchantId === currentUser?.id);
+                    const resolvedName = item.name || (item.productId ? (products.find(p => p.id === item.productId)?.name || '') : '');
+                    // Use only the user-typed name to drive suggestions. If a productId is set,
+                    // don't show suggestions (selection completed). Clearing the productId
+                    // happens if the user edits the input after selecting.
+                    const typed = item.name || '';
+                    const q = typed.toLowerCase();
+                    const suggestions = (!item.productId && q.length > 0)
+                      ? merchantProducts.filter(p => p.name.toLowerCase().includes(q)).slice(0, 8)
+                      : [];
+                    return (
+                      <div key={index} className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-x-2 mb-2">
+                        <div className="relative w-full sm:w-auto flex-grow">
+                          <Input
+                            value={resolvedName}
+                            onChange={e => {
+                              const val = e.target.value;
+                              // If a product was previously selected, clear it so the user
+                              // can type a new query and get suggestions again.
+                              if (item.productId) handleItemChange(index, 'productId', '');
+                              handleItemChange(index, 'name', val);
+                            }}
+                            placeholder="Type product name to search"
+                            className="w-full"
+                          />
+                          {suggestions.length > 0 && (
+                            <ul className="absolute z-50 mt-1 w-full max-h-40 overflow-auto rounded border bg-white shadow">
+                              {suggestions.map(p => (
+                                <li
+                                  key={p.id}
+                                  className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                                  onMouseDown={(ev) => { ev.preventDefault(); handleItemChange(index, 'productId', p.id); handleItemChange(index, 'name', p.name); }}
+                                >
+                                  {p.name}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={item.quantity}
+                          onChange={e => handleItemChange(index, 'quantity', e.target.value)}
+                          className="w-full sm:w-20"
+                        />
+                        <Button className="w-full sm:w-auto" variant="outline" onClick={() => handleRemoveItem(index)}>Remove</Button>
+                      </div>
+                    );
+                  })}
                   <div className="mt-2">
                     <Button className="w-full sm:w-auto" variant="outline" onClick={handleAddItem}>Add Item</Button>
                   </div>
