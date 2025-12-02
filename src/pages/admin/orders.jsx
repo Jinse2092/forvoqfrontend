@@ -129,7 +129,7 @@ const renderTemplate = (tpl, data) => {
 };
 
 const AdminOrders = () => {
-  const { orders, markOrderPacked, dispatchOrder, products, updateOrder, addOrder, removeOrder, inventory, currentUser, users, replaceOrder } = useInventory();
+  const { orders, markOrderPacked, dispatchOrder, products, updateOrder, addOrder, removeOrder, inventory, currentUser, users, replaceOrder, decrementInventoryItems } = useInventory();
   const { toast } = useToast();
   // Toggle template debug with URL param ?templateDebug=1
   const templateDebug = (typeof window !== 'undefined') && (new URLSearchParams(window.location.search).get('templateDebug') === '1');
@@ -268,7 +268,11 @@ const AdminOrders = () => {
     if (statusFilter && statusFilter !== 'all' && order.status !== statusFilter) return false;
 
     // always exclude return orders from admin view
+    // Some return records may not have status='return' (they use id prefix `ret-` or customerName 'Return')
     if (order.status === 'return') return false;
+    if (order.id && String(order.id).toLowerCase().startsWith('ret-')) return false;
+    if (order.return === true) return false;
+    if ((order.customerName || '').toLowerCase() === 'return') return false;
 
     // date range filter
     const od = parseDateSafe(order.date) || parseDateSafe(order.createdAt) || null;
@@ -311,6 +315,61 @@ const AdminOrders = () => {
     const db = parseDateSafe(b.date) || parseDateSafe(b.createdAt) || new Date(0);
     return db.getTime() - da.getTime();
   });
+
+  // On mount / refresh: detect orders/items marked as packed (or items with bin==='packed')
+  // and send aggregated quantities to inventory context so inventory is decremented once.
+  useEffect(() => {
+    const trySyncPacked = async () => {
+      try {
+        const syncedKey = 'packedSyncedOrders_v1';
+        const raw = localStorage.getItem(syncedKey);
+        const synced = raw ? new Set(JSON.parse(raw)) : new Set();
+
+        const ordersToSync = filteredOrders.filter(o => {
+          if (synced.has(o.id)) return false;
+          const statusPacked = String(o.status || '').toLowerCase() === 'packed';
+          const itemBinPacked = (o.items || []).some(it => String(it.bin || '').toLowerCase() === 'packed');
+          return statusPacked || itemBinPacked;
+        });
+
+        if (!ordersToSync || ordersToSync.length === 0) return;
+
+        // aggregate quantities per merchant + product
+        const agg = {};
+        ordersToSync.forEach(o => {
+          (o.items || []).forEach(it => {
+            const itemIsPacked = String(it.bin || '').toLowerCase() === 'packed' || String(o.status || '').toLowerCase() === 'packed';
+            if (!itemIsPacked) return;
+            const key = `${o.merchantId}|||${it.productId}`;
+            agg[key] = (agg[key] || 0) + (Number(it.quantity || 0));
+          });
+        });
+
+        const itemsArray = Object.entries(agg).map(([k, qty]) => {
+          const [merchantId, productId] = k.split('|||');
+          return { merchantId, productId, quantity: qty };
+        }).filter(i => i.quantity > 0);
+
+        if (itemsArray.length > 0) {
+          // Previously we decremented physical inventory here when orders were marked packed.
+          // That caused double-decrements because `packedQuantity` is now computed and
+          // displayed as `quantity - packedQuantity`. Do not mutate physical inventory
+          // on pack; keep a local synced marker so we don't re-process these orders.
+          console.log('Packed orders detected, marking as synced locally (no physical decrement).', itemsArray);
+        }
+
+        // mark these orders as synced locally so we don't decrement twice
+        ordersToSync.forEach(o => synced.add(o.id));
+        localStorage.setItem(syncedKey, JSON.stringify(Array.from(synced)));
+      } catch (err) {
+        console.error('Error syncing packed items to inventory', err);
+      }
+    };
+    // run once on load and whenever filteredOrders changes
+    trySyncPacked();
+  }, [filteredOrders]);
+
+  // dispatched-aggregate POST removed: packedQuantity is now computed and persisted elsewhere
 
   // Fetch packing fee totals for all non-pending orders not yet loaded in state (batch)
   // Only run once per reload — use a ref guard so we don't refetch on state/prop updates
@@ -1101,9 +1160,9 @@ const openMarkItemsDialog = (order) => {
         const boxFeeVal = boxFees[order.id] !== undefined ? parseFloat(boxFees[order.id]) || 0 : (pf && pf.boxFee !== undefined ? Number(pf.boxFee) : (order.boxFee !== undefined ? Number(order.boxFee) : 0));
         const boxCuttingVal = boxCuttings[order.id] !== undefined ? Boolean(boxCuttings[order.id]) : (pf && pf.boxCutting !== undefined ? Boolean(pf.boxCutting) : Boolean(order.boxCutting));
 
-        // Calculate per-order extra: boxFee + (boxCutting ? 2 : 0) + tracking fee (₹2)
+        // Calculate per-order extra: boxFee + (boxCutting ? 1 : 0) + tracking fee
         const trackingFee = 3; // fixed tracking fee as requested
-        const boxTotal = boxFeeVal + (boxCuttingVal ? 2 : 0) + trackingFee;
+        const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
 
         // Calculate item-wise packing fee using existing helper
         const itemsPacking = (order.items || []).reduce((sum, item) => {
@@ -1287,7 +1346,7 @@ const openMarkItemsDialog = (order) => {
     const boxFeeVal = Number(o.boxFee) || 0;
     const boxCuttingVal = o.boxCutting ? 1 : 0; // boolean
     const trackingFee = 3; // fixed ₹3 tracking fee per order
-    const boxTotal = boxFeeVal + (boxCuttingVal ? 2 : 0) + trackingFee;
+                        const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
     const total = itemsFee + boxTotal;
     return isFinite(total) ? `₹${total.toFixed(2)}` : 'N/A';
   };
@@ -1689,7 +1748,7 @@ const openMarkItemsDialog = (order) => {
                       checked={boxCuttings[order.id] ?? (packingFeesByOrder && packingFeesByOrder[order.id] && packingFeesByOrder[order.id].boxCutting !== undefined ? Boolean(packingFeesByOrder[order.id].boxCutting) : Boolean(order.boxCutting))}
                       onChange={(e) => setBoxCuttings((prev) => ({ ...prev, [order.id]: e.target.checked }))}
                     />
-                    <span className="text-sm">Box Cutting (+₹2)</span>
+                    <span className="text-sm">Box Cutting (+₹1)</span>
                   </Label>
                 </div>
               </div>

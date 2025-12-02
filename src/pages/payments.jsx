@@ -59,6 +59,25 @@ const PaymentsPanel = () => {
   };
 
   // Main payments table: combine transactions and received payments as rows
+  // Helper to detect return orders
+  const isReturnOrder = (o) => {
+    if (!o) return false;
+    if ((o.status || '').toString().toLowerCase() === 'return') return true;
+    if (o.id && String(o.id).toLowerCase().startsWith('ret-')) return true;
+    if (o.return === true) return true;
+    if ((o.customerName || '').toString().toLowerCase() === 'return') return true;
+    return false;
+  };
+
+  // Set of order ids that are returns so we can exclude related transactions
+  const returnOrderIds = new Set((orders || []).filter(isReturnOrder).map(o => o.id).filter(Boolean));
+
+  // Helper: parse order id from notes (e.g., 'Packing & Dispatch fee for order ord-1748019804350')
+  const parseOrderId = (notes = '') => {
+    const match = String(notes).match(/order\s+(\w+-\d+)/i);
+    return match ? match[1] : null;
+  };
+
   const combinedTransactions = [
     ...transactions,
     ...receivedPayments.map(p => ({
@@ -69,16 +88,24 @@ const PaymentsPanel = () => {
       productId: null
     }))
   ];
+
+  // Exclude transactions that reference return orders (by parsing order id from notes)
+  const combinedTransactionsExcludingReturns = combinedTransactions.filter(txn => {
+    const oid = parseOrderId(txn.notes);
+    if (oid && returnOrderIds.has(oid)) return false;
+    return true;
+  });
+
   const filteredTransactions = currentUser?.role === 'merchant'
-    ? combinedTransactions.filter(txn => txn.merchantId === currentUser.id)
-    : combinedTransactions;
+    ? combinedTransactionsExcludingReturns.filter(txn => txn.merchantId === currentUser.id)
+    : combinedTransactionsExcludingReturns;
 
   // Calculate total and pending payments for the current merchant
   const isMerchant = currentUser?.role === 'merchant' && currentUser?.id;
   // Only consider this merchant's transactions if merchant, else all
   const relevantTransactions = isMerchant
-    ? combinedTransactions.filter(txn => txn.merchantId === currentUser.id)
-    : combinedTransactions;
+    ? combinedTransactionsExcludingReturns.filter(txn => txn.merchantId === currentUser.id)
+    : combinedTransactionsExcludingReturns;
 
   // Total Payment: sum of all fee and dispatch rows (exclude received_payment)
   const totalPayment = relevantTransactions
@@ -93,11 +120,6 @@ const PaymentsPanel = () => {
   // Pending Payment: totalPayment - totalReceived
   const pendingPayment = totalPayment - totalReceived;
 
-  // Helper: parse order id from notes (e.g., 'Packing & Dispatch fee for order ord-1748019804350')
-  const parseOrderId = (notes = '') => {
-    const match = String(notes).match(/order\s+(\w+-\d+)/i);
-    return match ? match[1] : null;
-  };
 
   // Robust number parser: strip non-numeric (except dot and minus) and parse
   const parseNumber = (v) => {
@@ -108,8 +130,11 @@ const PaymentsPanel = () => {
     return isNaN(n) ? 0 : n;
   };
 
-  // Build a map of orders by id for quick lookup
-  const ordersMap = (orders || []).reduce((acc, o) => {
+  // Filter out return orders from orders list used for payments/tables
+  const filteredOrders = (orders || []).filter(o => !isReturnOrder(o));
+
+  // Build a map of orders by id for quick lookup (excluding returns)
+  const ordersMap = filteredOrders.reduce((acc, o) => {
     if (o.id) acc[o.id] = o;
     return acc;
   }, {});
@@ -117,8 +142,8 @@ const PaymentsPanel = () => {
   // Build table rows directly from the `orders` collection. The backend `/api/orders`
   // aggregates the packingFees document into each order (field `packingFee` and `packingDetails`).
   const visibleOrders = currentUser?.role === 'merchant' && currentUser?.id
-    ? (orders || []).filter(o => o.merchantId === currentUser.id)
-    : (orders || []);
+    ? filteredOrders.filter(o => o.merchantId === currentUser.id)
+    : filteredOrders;
 
   const tableRows = (visibleOrders || []).map(o => {
     const pd = o.packingDetails || o.packingdetails || o.packing_details;
@@ -153,8 +178,8 @@ const PaymentsPanel = () => {
     }
     const boxFee = parseNumber(pfDoc?.boxFee ?? o.boxFee ?? 0);
     const boxCuttingCharge = (pfDoc && pfDoc.boxCutting !== undefined)
-      ? (pfDoc.boxCutting ? 2 : 0)
-      : (o.boxCutting ? 2 : 0);
+      ? (pfDoc.boxCutting ? 1 : 0)
+      : (o.boxCutting ? 1 : 0);
     const trackingFee = parseNumber(pfDoc?.trackingFee ?? o.trackingFee ?? 0);
     const totalPackingFee = parseNumber(pfDoc?.totalPackingFee ?? o.packingFee ?? 0);
 

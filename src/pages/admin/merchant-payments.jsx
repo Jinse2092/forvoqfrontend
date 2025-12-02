@@ -57,7 +57,7 @@ const MerchantPaymentsPage = () => {
     let transportationTotal = 0, warehousingTotal = 0, itemPackingTotal = 0;
     if (pdItems) pdItems.forEach(it => { const q = Number(it.quantity||0)||0; transportationTotal += (Number(it.transportationPerItem ?? it.transportation ?? 0)||0)*q; warehousingTotal += (Number(it.warehousingPerItem ?? it.warehousing ?? 0)||0)*q; itemPackingTotal += (Number(it.itemPackingPerItem ?? it.itemPackingFee ?? it.itemPacking ?? 0)||0)*q; });
     const boxFee = parseNumber(pfDoc?.boxFee ?? o.boxFee ?? 0);
-    const boxCuttingCharge = (pfDoc && pfDoc.boxCutting !== undefined) ? (pfDoc.boxCutting ? 2 : 0) : (o.boxCutting ? 2 : 0);
+    const boxCuttingCharge = (pfDoc && pfDoc.boxCutting !== undefined) ? (pfDoc.boxCutting ? 1 : 0) : (o.boxCutting ? 1 : 0);
     const trackingFee = parseNumber(pfDoc?.trackingFee ?? o.trackingFee ?? 0);
     const totalPackingFee = parseNumber(pfDoc?.totalPackingFee ?? o.packingFee ?? 0);
     return { id: o.id, date: o.date || o.createdAt || '-', orderId: o.id, customerName: o.customerName || o.customer || 'Unknown', items: itemsSummary, amount: totalPackingFee, transportationTotal, warehousingTotal, itemPackingTotal, boxFee, boxCuttingCharge, trackingFee };

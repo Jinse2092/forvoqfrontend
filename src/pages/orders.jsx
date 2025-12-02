@@ -1087,7 +1087,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                         const boxFeeVal = Number(order.boxFee) || 0;
                         const boxCuttingVal = order.boxCutting ? 1 : 0;
                         const trackingFee = 3;
-                        const boxTotal = boxFeeVal + (boxCuttingVal ? 2 : 0) + trackingFee;
+                        const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
                         return itemsFee + boxTotal;
                       })();
                       const packingFee = (order.packingFee !== undefined && order.packingFee !== null && order.packingFee !== '') ? Number(order.packingFee) : computedPackingFee;
@@ -1233,7 +1233,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                         const boxFeeVal = Number(order.boxFee) || 0;
                         const boxCuttingVal = order.boxCutting ? 1 : 0;
                         const trackingFee = 3;
-                        const boxTotal = boxFeeVal + (boxCuttingVal ? 2 : 0) + trackingFee;
+                        const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
                         return itemsFee + boxTotal;
                       })();
                       const packingFee = (order.packingFee !== undefined && order.packingFee !== null && order.packingFee !== '') ? Number(order.packingFee) : computedPackingFee;
@@ -1323,7 +1323,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                         const boxFeeVal = Number(order.boxFee) || 0;
                         const boxCuttingVal = order.boxCutting ? 1 : 0;
                         const trackingFee = 3;
-                        const boxTotal = boxFeeVal + (boxCuttingVal ? 2 : 0) + trackingFee;
+                        const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
                         return itemsFee + boxTotal;
                       })();
                       return (
@@ -1413,7 +1413,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                         const boxFeeVal = Number(order.boxFee) || 0;
                         const boxCuttingVal = order.boxCutting ? 1 : 0;
                         const trackingFee = 3;
-                        const boxTotal = boxFeeVal + (boxCuttingVal ? 2 : 0) + trackingFee;
+                        const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
                         return itemsFee + boxTotal;
                       })();
                       const packingFee = (order.packingFee !== undefined && order.packingFee !== null && order.packingFee !== '') ? Number(order.packingFee) : computedPackingFee;

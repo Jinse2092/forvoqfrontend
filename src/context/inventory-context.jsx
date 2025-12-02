@@ -69,8 +69,40 @@ export const InventoryProvider = ({ children }) => {
       });
       console.log('Orders with city and state:', ordersWithCityState);
 
+      // Compute packedQuantity per inventory item from all non-pending orders
+      const nonPendingOrders = ordersWithCityState.filter(o => o.status && o.status !== 'pending');
+      const rawInventory = results[1] || [];
+
+      const inventoryWithPacked = rawInventory.map(invItem => {
+        const packedQuantity = nonPendingOrders.reduce((sum, ord) => {
+          if (!Array.isArray(ord.items)) return sum;
+          const matching = ord.items.filter(it => it.productId === invItem.productId && ord.merchantId === invItem.merchantId);
+          const qty = matching.reduce((s, m) => s + (Number(m.quantity) || 0), 0);
+          return sum + qty;
+        }, 0);
+        return { ...invItem, packedQuantity };
+      });
+
+      // Persist packedQuantity to backend for any inventory items that differ.
+      // Use PATCH and only send the packedQuantity field so we don't overwrite
+      // the `quantity` (physical stock) accidentally.
+      inventoryWithPacked.forEach(async (inv) => {
+        try {
+          const existingPacked = results[1].find(i => i.id === inv.id)?.packedQuantity || 0;
+          if (Number(existingPacked) !== Number(inv.packedQuantity)) {
+            await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${inv.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ packedQuantity: Number(inv.packedQuantity) || 0 }),
+            });
+          }
+        } catch (err) {
+          console.error('Failed to persist packedQuantity for inventory', inv.id, err);
+        }
+      });
+
       setProducts(results[0]);
-      setInventory(results[1]);
+      setInventory(inventoryWithPacked);
       setTransactions(results[2]);
       setOrders(ordersWithCityState);
 
@@ -120,7 +152,8 @@ export const InventoryProvider = ({ children }) => {
       merchantName: merchant.companyName || '',
       productName: product.name || '',
       location: location || invItem.location || '',
-      quantity: invItem.quantity || 0,
+      // displayable quantity = physical quantity minus packedQuantity (if present)
+      quantity: (Number(invItem.quantity || 0) - Number(invItem.packedQuantity || 0)),
       minStock: invItem.minStockLevel || 0,
       maxStock: invItem.maxStockLevel || 0,
     };
@@ -592,6 +625,25 @@ export const InventoryProvider = ({ children }) => {
     toast({ title: "Order Updated", description: `Order ${orderId} marked as packed.` });
   };
 
+  // Decrement inventory quantities for multiple packed items.
+  // itemsArray: [{ productId, merchantId, quantity }]
+  const decrementInventoryItems = async (itemsArray) => {
+    if (!Array.isArray(itemsArray) || itemsArray.length === 0) return;
+    for (const itm of itemsArray) {
+      try {
+        // reuse existing helper which handles finding inventory item and persisting
+        const success = await removeInventoryItemQuantity(itm);
+        if (!success) {
+          console.warn('Failed to decrement inventory for', itm);
+        }
+      } catch (err) {
+        console.error('Error decrementing inventory for', itm, err);
+      }
+    }
+    // Refresh data to keep UI consistent
+    await fetchAllData();
+  };
+
   // --- Inbound Management ---
    const addInboundRequest = async (inboundData) => {
      // Calculate total weight using max of actual and volumetric weight per item
@@ -833,6 +885,8 @@ export const InventoryProvider = ({ children }) => {
       inventory: enhancedInventory, addInventoryItem, updateInventoryItem, deleteInventoryItem,
       transactions: filteredTransactions, addTransaction,
       orders: filteredOrders, addOrder, addReturnOrder, updateOrder, removeOrder, dispatchOrder, markOrderPacked,
+      // Decrement inventory for packed items (client-side sync helper)
+      decrementInventoryItems,
       inbounds: filteredInbounds, setInbounds, addInboundRequest, receiveInbound,
       users: filteredUsers, setUsers,
       savedPickupLocations, addPickupLocation, updatePickupLocation, deletePickupLocation,
