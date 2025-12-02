@@ -57,12 +57,20 @@ const Register = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: formData.email }),
       });
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonErr) {
+        const text = await response.text().catch(() => null);
+        setError(text || 'Server returned an invalid response.');
+        setLoading(false);
+        return;
+      }
       if (response.ok) {
         setMessage(data.message || 'OTP sent to your email.');
         setStep(2);
       } else {
-        setError(data.error || 'Failed to send OTP.');
+        setError(data.error || data.message || 'Failed to send OTP.');
       }
     } catch (err) {
       setError('Network error. Please try again later.');
@@ -84,12 +92,20 @@ const Register = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: formData.email, otp }),
       });
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonErr) {
+        const text = await response.text().catch(() => null);
+        setError(text || 'Server returned an invalid response.');
+        setLoading(false);
+        return;
+      }
       if (response.ok) {
         setMessage(data.message || 'OTP verified.');
         setStep(3);
       } else {
-        setError(data.error || 'Invalid OTP.');
+        setError(data.error || data.message || 'Invalid OTP.');
       }
     } catch (err) {
       setError('Network error. Please try again later.');
