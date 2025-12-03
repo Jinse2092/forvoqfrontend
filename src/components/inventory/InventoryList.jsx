@@ -32,7 +32,7 @@ const InventoryList = ({ inventory, openEditModal, openAdjustModal, getProductNa
             <TableHead className="text-right">Min Stock</TableHead>
             <TableHead className="text-right">Max Stock</TableHead>
             <TableHead className="text-center">Status</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+            {isAdminView && <TableHead className="text-right">Actions</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -74,25 +74,25 @@ const InventoryList = ({ inventory, openEditModal, openAdjustModal, getProductNa
                        {statusText}
                      </Badge>
                   </TableCell>
-                  <TableCell className="text-right space-x-1">
-                    {/* Adjust stock is likely an admin action */}
-                    {(isAdminView) && ( // Only show adjust for admin/superadmin
-                       <Button variant="ghost" size="icon" onClick={() => openAdjustModal(item)} title="Adjust Stock">
-                         <PlusCircle className="h-4 w-4 mr-0.5 text-green-600" />
-                         <MinusCircle className="h-4 w-4 text-red-600" />
-                       </Button>
-                    )}
-                    {/* Edit might be for min/max levels */}
-                    <Button variant="ghost" size="icon" onClick={() => openEditModal(item)} title="Edit Details">
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    {/* Deletion is restricted */}
-                    {/*
-                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                    */}
-                  </TableCell>
+                  {isAdminView && (
+                    <TableCell className="text-right space-x-1">
+                      {/* Adjust stock is likely an admin action */}
+                      <Button variant="ghost" size="icon" onClick={() => openAdjustModal(item)} title="Adjust Stock">
+                        <PlusCircle className="h-4 w-4 mr-0.5 text-green-600" />
+                        <MinusCircle className="h-4 w-4 text-red-600" />
+                      </Button>
+                      {/* Edit might be for min/max levels */}
+                      <Button variant="ghost" size="icon" onClick={() => openEditModal(item)} title="Edit Details">
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      {/* Deletion is restricted */}
+                      {/*
+                      <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(item.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                      */}
+                    </TableCell>
+                  )}
                 </motion.tr>
               );
             })}
