@@ -20,7 +20,7 @@ const Inbound = () => {
   const [newDeliveryLocation, setNewDeliveryLocation] = useState({ buildingNumber: '', location: '', pincode: '', phone: '' });
 
   const [inboundDetails, setInboundDetails] = useState({
-    items: [{ productId: '', quantity: 0 }],
+    items: [{ productId: '', productQuery: '', quantity: 0 }],
     pickupLocation: '', // was null
     deliveryLocation: '', // was null
     type: 'inbound',
@@ -30,13 +30,23 @@ const Inbound = () => {
     const { name, value } = e.target;
     setInboundDetails(prev => {
       const newItems = [...prev.items];
-      if (name === 'productId' || name === 'quantity') {
-        if (name === 'quantity') {
-          newItems[index][name] = parseInt(value) || 0;
-        } else {
-          newItems[index][name] = value;
-        }
+      if (name === 'quantity') {
+        newItems[index][name] = parseInt(value) || 0;
       }
+      if (name === 'productQuery') {
+        newItems[index].productQuery = value;
+        // clear productId while typing so validation requires explicit selection
+        newItems[index].productId = '';
+      }
+      return { ...prev, items: newItems };
+    });
+  };
+
+  const handleSelectProduct = (product, index) => {
+    setInboundDetails(prev => {
+      const newItems = [...prev.items];
+      newItems[index].productId = product.id;
+      newItems[index].productQuery = `${product.name} (${product.sku})`;
       return { ...prev, items: newItems };
     });
   };
@@ -58,13 +68,13 @@ const Inbound = () => {
   };
 
   const addItem = () => {
-    setInboundDetails(prev => ({ ...prev, items: [...prev.items, { productId: '', quantity: 0 }] }));
+    setInboundDetails(prev => ({ ...prev, items: [...prev.items, { productId: '', productQuery: '', quantity: 0 }] }));
   };
 
   const removeItem = (index) => {
     setInboundDetails(prev => {
       const newItems = prev.items.filter((_, i) => i !== index);
-      return { ...prev, items: newItems.length > 0 ? newItems : [{ productId: '', quantity: 0 }] };
+      return { ...prev, items: newItems.length > 0 ? newItems : [{ productId: '', productQuery: '', quantity: 0 }] };
     });
   };
 
@@ -116,7 +126,7 @@ const Inbound = () => {
     addInboundRequest(newInbound);
     toast({ title: 'Inventory Request Added', description: `${inboundDetails.type === 'inbound' ? 'Pickup' : 'Delivery'} scheduled.` });
     setIsDialogOpen(false);
-    setInboundDetails({ items: [{ productId: '', quantity: 0 }], pickupLocation: '', deliveryLocation: '', type: 'inbound' });
+    setInboundDetails({ items: [{ productId: '', productQuery: '', quantity: 0 }], pickupLocation: '', deliveryLocation: '', type: 'inbound' });
   };
 
   return (
@@ -141,32 +151,51 @@ const Inbound = () => {
                 </TabsList>
                 <TabsContent value="inbound" className="space-y-4">
                   {inboundDetails.items.map((item, index) => (
-                    <div key={index} className="flex flex-wrap items-center space-x-3 space-y-2">
-                      <select
-                        name="productId"
-                        value={item.productId || ''}
-                        onChange={(e) => handleInputChange(e, index)}
-                        className="flex-grow min-w-[160px] border border-gray-300 rounded p-2"
-                        required
-                      >
-                        <option value="">Select product</option>
-                        {products.map(product => (
-                          <option key={product.id} value={product.id}>
-                            {product.name} ({product.sku})
-                          </option>
-                        ))}
-                      </select>
+                    <div key={index} className="flex flex-col sm:flex-row sm:items-center sm:space-x-3 space-y-2">
+                      <div className="relative flex-grow min-w-[160px]">
+                        <Input
+                          name="productQuery"
+                          value={item.productQuery || ''}
+                          onChange={(e) => handleInputChange(e, index)}
+                          placeholder="Type to search product"
+                          className="w-full"
+                          autoComplete="off"
+                          type="search"
+                          inputMode="search"
+                          enterKeyHint="search"
+                          required
+                        />
+                        {item.productQuery && (
+                          <div className="absolute left-0 right-0 mt-1 max-h-40 overflow-auto rounded border bg-white z-20">
+                            {(products.filter(p => (`${p.name} ${p.sku}`).toLowerCase().includes(item.productQuery.toLowerCase())).slice(0, 10)).map(product => (
+                              <button
+                                key={product.id}
+                                type="button"
+                                className="w-full text-left px-3 py-2 hover:bg-gray-100"
+                                onClick={() => handleSelectProduct(product, index)}
+                              >
+                                {product.name} ({product.sku})
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <Input
                         name="quantity"
                         type="number"
+                        inputMode="numeric"
+                        pattern="\d*"
                         min="1"
                         value={item.quantity}
                         onChange={(e) => handleInputChange(e, index)}
                         placeholder="Quantity"
                         className="w-28 min-w-[80px]"
+                        enterKeyHint="next"
                         required
                       />
-                      <Button type="button" variant="outline" onClick={() => removeItem(index)} className="h-9 px-3">Remove</Button>
+                      <div className="flex items-center space-x-2">
+                        <Button type="button" variant="outline" onClick={() => removeItem(index)} className="h-9 px-3">Remove</Button>
+                      </div>
                     </div>
                   ))}
                   <Button type="button" variant="outline" onClick={addItem} className="mt-2 px-4 py-1">Add Product</Button>
@@ -214,12 +243,20 @@ const Inbound = () => {
                           placeholder="Pincode"
                           value={newLocation.pincode}
                           onChange={e => setNewLocation(prev => ({ ...prev, pincode: e.target.value }))}
+                          inputMode="numeric"
+                          pattern="\d*"
+                          autoComplete="postal-code"
+                          enterKeyHint="next"
                           required
                         />
                         <Input
                           placeholder="Phone Number"
                           value={newLocation.phone}
                           onChange={e => setNewLocation(prev => ({ ...prev, phone: e.target.value }))}
+                          type="tel"
+                          inputMode="tel"
+                          autoComplete="tel"
+                          enterKeyHint="done"
                           required
                         />
                         <div className="flex space-x-2">
@@ -260,36 +297,55 @@ const Inbound = () => {
                     const inventoryItem = inventory.find(i => i.productId === item.productId && i.merchantId === currentUser?.id);
                     const availableQuantity = inventoryItem ? inventoryItem.quantity : 0;
                     return (
-                      <div key={index} className="flex flex-wrap items-center space-x-3 space-y-2">
-                        <select
-                          name="productId"
-                          value={item.productId || ''}
-                          onChange={(e) => handleInputChange(e, index)}
-                          className="flex-grow min-w-[160px] border border-gray-300 rounded p-2"
-                          required
-                        >
-                          <option value="">Select product</option>
-                          {products.map(product => (
-                            <option key={product.id} value={product.id}>
-                              {product.name} ({product.sku})
-                            </option>
-                          ))}
-                        </select>
+                      <div key={index} className="flex flex-col sm:flex-row sm:items-center sm:space-x-3 space-y-2">
+                        <div className="relative flex-grow min-w-[160px]">
+                          <Input
+                            name="productQuery"
+                            value={item.productQuery || ''}
+                            onChange={(e) => handleInputChange(e, index)}
+                            placeholder="Type to search product"
+                            className="w-full"
+                            autoComplete="off"
+                            type="search"
+                            inputMode="search"
+                            enterKeyHint="search"
+                            required
+                          />
+                          {item.productQuery && (
+                            <div className="absolute left-0 right-0 mt-1 max-h-40 overflow-auto rounded border bg-white z-20">
+                              {(products.filter(p => (`${p.name} ${p.sku}`).toLowerCase().includes(item.productQuery.toLowerCase())).slice(0, 10)).map(product => (
+                                <button
+                                  key={product.id}
+                                  type="button"
+                                  className="w-full text-left px-3 py-2 hover:bg-gray-100"
+                                  onClick={() => handleSelectProduct(product, index)}
+                                >
+                                  {product.name} ({product.sku})
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                         <div className="flex flex-col">
                           <Input
                             name="quantity"
                             type="number"
+                            inputMode="numeric"
+                            pattern="\d*"
                             min="1"
                             max={availableQuantity}
                             value={item.quantity}
                             onChange={(e) => handleInputChange(e, index)}
                             placeholder="Quantity"
                             className="w-28 min-w-[80px]"
+                            enterKeyHint="next"
                             required
                           />
                           <span className="text-xs text-gray-500">Available: {availableQuantity}</span>
                         </div>
-                        <Button type="button" variant="outline" onClick={() => removeItem(index)} className="h-9 px-3">Remove</Button>
+                        <div className="flex items-center space-x-2">
+                          <Button type="button" variant="outline" onClick={() => removeItem(index)} className="h-9 px-3">Remove</Button>
+                        </div>
                       </div>
                     );
                   })}
@@ -338,12 +394,20 @@ const Inbound = () => {
                           placeholder="Pincode"
                           value={newDeliveryLocation.pincode}
                           onChange={e => setNewDeliveryLocation(prev => ({ ...prev, pincode: e.target.value }))}
+                          inputMode="numeric"
+                          pattern="\d*"
+                          autoComplete="postal-code"
+                          enterKeyHint="next"
                           required
                         />
                         <Input
                           placeholder="Phone Number"
                           value={newDeliveryLocation.phone}
                           onChange={e => setNewDeliveryLocation(prev => ({ ...prev, phone: e.target.value }))}
+                          type="tel"
+                          inputMode="tel"
+                          autoComplete="tel"
+                          enterKeyHint="done"
                           required
                         />
                         <div className="flex space-x-2">

@@ -257,8 +257,8 @@ export const InventoryProvider = ({ children }) => {
 
   // --- Product CRUD ---
   const addProduct = async (product) => {
-    // Ensure merchantId is preserved when adding product
-    const newProduct = { ...product, merchantId: currentUser?.id };
+    // Preserve provided merchantId when adding product; fallback to currentUser if not provided
+    const newProduct = { ...product, merchantId: product.merchantId || currentUser?.id };
     const savedProduct = await addDataToBackend('products', newProduct, setProducts);
     if (savedProduct) {
       toast({ title: "Product Added", description: `${savedProduct.name} has been added.` });

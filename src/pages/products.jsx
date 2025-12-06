@@ -15,6 +15,11 @@ const Products = () => {
   const { products, users, addProduct, updateProduct, deleteProduct, currentUser } = useInventory();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [currentProduct, setCurrentProduct] = useState(null);
+  // Bulk add state (admin-only)
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [selectedMerchantForBulk, setSelectedMerchantForBulk] = useState('');
+  const [bulkProducts, setBulkProducts] = useState([{ name: '', price: '', weightKg: '' }]);
+  const [bulkFees, setBulkFees] = useState({ transportationFee: '', itemPackingFee: '', warehousingRatePerKg: '' });
   
   const [formData, setFormData] = useState({
     name: '',
@@ -125,6 +130,75 @@ const Products = () => {
     if (window.confirm('Are you sure you want to delete this product? This action cannot be undone.')) {
       deleteProduct(id);
     }
+  };
+
+  // Bulk add handlers
+  const handleBulkChangeRow = (index, field, value) => {
+    setBulkProducts(prev => {
+      const arr = [...prev];
+      arr[index] = { ...arr[index], [field]: value };
+      return arr;
+    });
+  };
+
+  const handleBulkAddRow = () => setBulkProducts(prev => [...prev, { name: '', price: '', weightKg: '' }]);
+  const handleBulkRemoveRow = (index) => setBulkProducts(prev => prev.filter((_, i) => i !== index));
+
+  const handleBulkFeeChange = (e) => {
+    const { name, value } = e.target;
+    setBulkFees(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleBulkSubmit = (e) => {
+    e.preventDefault();
+    if (!selectedMerchantForBulk) {
+      alert('Please select a merchant for the bulk products.');
+      return;
+    }
+    // Validate rows
+    const rows = bulkProducts.filter(r => (r.name && String(r.name).trim() !== ''));
+    if (rows.length === 0) {
+      alert('Please add at least one product row with a name.');
+      return;
+    }
+
+    // Parse fees
+    const tFee = parseFloat(bulkFees.transportationFee || 0) || 0;
+    const pFee = parseFloat(bulkFees.itemPackingFee || 0) || 0;
+    const wRate = parseFloat(bulkFees.warehousingRatePerKg || 0) || 0;
+
+    rows.forEach((r, idx) => {
+      const price = r.price === '' ? 0 : parseFloat(r.price) || 0;
+      const weightKg = r.weightKg === '' ? 0 : parseFloat(r.weightKg) || 0;
+      const product = {
+        id: `bulk_${Date.now()}_${idx}_${Math.floor(Math.random()*10000)}`,
+        name: String(r.name).trim(),
+        skus: [],
+        category: '',
+        price,
+        cost: 0,
+        description: '',
+        imageUrl: '',
+        weightKg,
+        transportationFee: tFee,
+        itemPackingFee: pFee,
+        warehousingRatePerKg: wRate,
+        lengthCm: '',
+        breadthCm: '',
+        heightCm: '',
+        inboundPrice: 0,
+        outboundPrice: 0,
+        packingPrice: 0,
+        merchantId: selectedMerchantForBulk,
+      };
+      addProduct(product);
+    });
+
+    // Reset and close
+    setSelectedMerchantForBulk('');
+    setBulkProducts([{ name: '', price: '', weightKg: '' }]);
+    setBulkFees({ transportationFee: '', itemPackingFee: '', warehousingRatePerKg: '' });
+    setIsBulkModalOpen(false);
   };
 
   const filteredProducts = products.filter(product =>
@@ -331,6 +405,86 @@ const Products = () => {
               </div>
             </DialogContent>
           </Dialog>
+            {/* Bulk Add Products - Admin Only */}
+            {currentUser?.role !== 'merchant' && (
+              <Dialog open={isBulkModalOpen} onOpenChange={setIsBulkModalOpen}>
+                <DialogTrigger asChild>
+                  <Button onClick={() => setIsBulkModalOpen(true)} variant="ghost" className="ml-2">
+                    <PlusCircle className="mr-2 h-4 w-4" /> Bulk Add
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="w-full max-w-full sm:max-w-2xl p-4 sm:p-6 overflow-auto max-h-[85vh]">
+                  <DialogHeader>
+                    <DialogTitle>Bulk Add Products</DialogTitle>
+                    <DialogDescription>Add multiple products for a merchant and apply bulk fees.</DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleBulkSubmit} className="space-y-4">
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right">Merchant</Label>
+                      <select value={selectedMerchantForBulk} onChange={(e) => setSelectedMerchantForBulk(e.target.value)} className="col-span-3 sm:col-span-1 p-2 border rounded">
+                        <option value="">-- Select Merchant --</option>
+                        {users.filter(u => u.role === 'merchant').map(u => (
+                          <option key={u.id} value={u.id}>{u.companyName || u.id}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Show selected merchant details so rows clearly inherit this merchant */}
+                    {selectedMerchantForBulk && (() => {
+                      const sel = users.find(u => u.id === selectedMerchantForBulk) || null;
+                      return (
+                        <div className="grid grid-cols-4 items-center gap-4 bg-muted p-2 rounded">
+                          <div className="col-span-2 sm:col-span-1 text-sm">
+                            <strong>Merchant ID:</strong> {sel ? sel.id : selectedMerchantForBulk}
+                          </div>
+                          <div className="col-span-2 sm:col-span-3 text-sm">
+                            <strong>Merchant:</strong> {sel ? (sel.companyName || sel.id) : selectedMerchantForBulk}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="space-y-2">
+                      {bulkProducts.map((row, idx) => (
+                        <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                          <input className="col-span-5 p-2 border rounded" placeholder="Product name" value={row.name} onChange={(e) => handleBulkChangeRow(idx, 'name', e.target.value)} />
+                          <input className="col-span-2 p-2 border rounded" placeholder="Price (₹)" type="number" step="0.01" value={row.price} onChange={(e) => handleBulkChangeRow(idx, 'price', e.target.value)} />
+                          <input className="col-span-2 p-2 border rounded" placeholder="Weight (kg)" type="number" step="0.01" value={row.weightKg} onChange={(e) => handleBulkChangeRow(idx, 'weightKg', e.target.value)} />
+                          <div className="col-span-3 flex gap-2 justify-end">
+                            {bulkProducts.length > 1 && (
+                              <Button type="button" variant="outline" onClick={() => handleBulkRemoveRow(idx)}>Remove</Button>
+                            )}
+                            {idx === bulkProducts.length - 1 && (
+                              <Button type="button" variant="outline" onClick={handleBulkAddRow}>Add Row</Button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right">Transportation Fee (₹) per item</Label>
+                      <Input id="transportationFee_bulk" name="transportationFee" value={bulkFees.transportationFee} onChange={handleBulkFeeChange} className="col-span-3 sm:col-span-1 w-full" placeholder="e.g. 5.00" />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right">Item Packing Fee (₹) per item</Label>
+                      <Input id="itemPackingFee_bulk" name="itemPackingFee" value={bulkFees.itemPackingFee} onChange={handleBulkFeeChange} className="col-span-3 sm:col-span-1 w-full" placeholder="e.g. 12.00" />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right">Warehousing Rate (₹) per kg</Label>
+                      <Input id="warehousingRatePerKg_bulk" name="warehousingRatePerKg" value={bulkFees.warehousingRatePerKg} onChange={handleBulkFeeChange} className="col-span-3 sm:col-span-1 w-full" placeholder="e.g. 2.00" />
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <DialogClose asChild>
+                        <Button type="button" variant="outline">Cancel</Button>
+                      </DialogClose>
+                      <Button type="submit">Create Products</Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            )}
       </div>
       <Card>
         <CardHeader>

@@ -1567,31 +1567,31 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
               <TabsContent value="manual">
                 <div>
                   <Label>Customer Name</Label>
-                  <Input value={customerName} onChange={e => setCustomerName(e.target.value)} />
+                  <Input value={customerName} onChange={e => setCustomerName(e.target.value)} autoComplete="name" enterKeyHint="next" />
                 </div>
                 <div>
                   <Label>Address</Label>
-                  <Input value={address} onChange={e => setAddress(e.target.value)} />
+                  <Input value={address} onChange={e => setAddress(e.target.value)} autoComplete="street-address" enterKeyHint="next" />
                 </div>
                 <div>
                   <Label>City</Label>
-                  <Input value={city} onChange={e => setCity(e.target.value)} />
+                  <Input value={city} onChange={e => setCity(e.target.value)} autoComplete="address-level2" enterKeyHint="next" />
                 </div>
                 <div>
                   <Label>State</Label>
-                  <Input value={state} onChange={e => setState(e.target.value)} />
+                  <Input value={state} onChange={e => setState(e.target.value)} autoComplete="address-level1" enterKeyHint="next" />
                 </div>
                 <div>
                   <Label>Pincode</Label>
-                  <Input value={pincode} onChange={e => setPincode(e.target.value)} />
+                  <Input value={pincode} onChange={e => setPincode(e.target.value)} inputMode="numeric" pattern="\d*" autoComplete="postal-code" enterKeyHint="next" />
                 </div>
                 <div>
                   <Label>Phone Number</Label>
-                  <Input value={phone} onChange={e => setPhone(e.target.value)} />
+                  <Input value={phone} onChange={e => setPhone(e.target.value)} type="tel" inputMode="tel" autoComplete="tel" enterKeyHint="next" />
                 </div>
                 <div>
                   <Label>Courier Partner</Label>
-                  <Input value={newDeliveryPartner} onChange={e => setNewDeliveryPartner(e.target.value)} placeholder="Courier / Delivery Partner" />
+                  <Input value={newDeliveryPartner} onChange={e => setNewDeliveryPartner(e.target.value)} placeholder="Courier / Delivery Partner" autoComplete="organization" enterKeyHint="next" />
                 </div>
                 <div>
                   <Label>Item</Label>
@@ -1613,13 +1613,15 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                             value={resolvedName}
                             onChange={e => {
                               const val = e.target.value;
-                              // If a product was previously selected, clear it so the user
-                              // can type a new query and get suggestions again.
                               if (item.productId) handleItemChange(index, 'productId', '');
                               handleItemChange(index, 'name', val);
                             }}
                             placeholder="Type product name to search"
                             className="w-full"
+                            type="search"
+                            inputMode="search"
+                            autoComplete="off"
+                            enterKeyHint="search"
                           />
                           {suggestions.length > 0 && (
                             <ul className="absolute z-50 mt-1 w-full max-h-40 overflow-auto rounded border bg-white shadow">
@@ -1637,10 +1639,13 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                         </div>
                         <Input
                           type="number"
+                          inputMode="numeric"
+                          pattern="\d*"
                           min="1"
                           value={item.quantity}
                           onChange={e => handleItemChange(index, 'quantity', e.target.value)}
                           className="w-full sm:w-20"
+                          enterKeyHint="next"
                         />
                         <Button className="w-full sm:w-auto" variant="outline" onClick={() => handleRemoveItem(index)}>Remove</Button>
                       </div>

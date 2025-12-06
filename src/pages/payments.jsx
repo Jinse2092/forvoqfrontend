@@ -243,6 +243,28 @@ const PaymentsPanel = () => {
     return acc;
   }, { transportation: 0, warehousing: 0, itemPacking: 0, boxFee: 0, boxCutting: 0, tracking: 0, totalPacking: 0 });
 
+  // Count total product units in the selected month's orders (sum of item quantities)
+  let totalProductsCount = 0;
+  sortedMonthlyRows.forEach(r => {
+    const order = ordersMap[r.orderId];
+    if (order) {
+      const items = order.items || order.orderItems || order.order_items || [];
+      if (Array.isArray(items)) {
+        items.forEach(it => {
+          const qty = Number(it.quantity || it.qty || it.count || 0) || 0;
+          totalProductsCount += qty;
+        });
+      }
+    } else if (r.items && typeof r.items === 'string') {
+      // items summary like 'Name x2, Name2 x1' -> extract quantities
+      r.items.split(',').forEach(part => {
+        const match = String(part || '').trim().match(/x\s*(\d+)$/i);
+        const qty = match ? Number(match[1]) : 1;
+        totalProductsCount += qty || 0;
+      });
+    }
+  });
+
   // Monthly received payments (to compute pending)
   const monthlyReceivedTotal = receivedPayments
     .filter(p => getYYYYMM(p.date) === selectedMonth)
@@ -312,7 +334,7 @@ const PaymentsPanel = () => {
       <Card className="mb-6">
               <CardHeader className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold">Monthly Billing Summary — {selectedMonth}</h3>
-                      <div className="text-sm text-gray-600">Orders: {sortedMonthlyRows.length} • Total Fees: ₹{monthlyComponentTotals.totalPacking.toFixed(2)}</div>
+                              <div className="text-sm text-gray-600">Orders: {sortedMonthlyRows.length} • Products: {totalProductsCount} • Total Fees: ₹{monthlyComponentTotals.totalPacking.toFixed(2)}</div>
               </CardHeader>
         {/* client-by-client breakdown removed per request - only show totals below */}
         <div className="p-4">
