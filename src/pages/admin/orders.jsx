@@ -237,6 +237,18 @@ const AdminOrders = () => {
   // Add state for newTrackingCode
   const [newTrackingCode, setNewTrackingCode] = useState('');
 
+  // Scanner state & refs (mobile-only barcode scanner)
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const videoRef = useRef(null);
+  const scanIntervalRef = useRef(null);
+  const streamRef = useRef(null);
+  const barcodeDetectorRef = useRef(null);
+  const [scanStatus, setScanStatus] = useState('');
+  const quaggaStartedRef = useRef(false);
+  const detectionBufferRef = useRef([]);
+  const STABLE_COUNT = 3; // require 3 matching reads
+  const STABLE_WINDOW = 1200; // ms window to consider
+
   // Filters
   const [statusFilter, setStatusFilter] = useState('all'); // all, pending, packed, dispatched, delivered, return
   const [dateRangeFilter, setDateRangeFilter] = useState('all'); // all, today, yesterday, last7, last30, custom
@@ -457,6 +469,8 @@ const AdminOrders = () => {
   // Open weight dialog for a single order (from order details)
   const openWeightDialogForOrder = (order) => {
     if (!order) return;
+    // close order details dialog (we're opening the weight dialog)
+    setIsOrderDetailsDialogOpen(false);
     setOrdersForWeightUpdate([order]);
     setWeights({ [order.id]: order.packedweight ?? order.totalWeightKg ?? '' });
     setIsWeightDialogOpen(true);
@@ -587,6 +601,241 @@ const AdminOrders = () => {
       await generateShippingLabelPDF(augmentedOrder, { companyName: merchant.companyName, id: merchant.id });
     } catch (e) {
       console.warn('Default PDF generation failed', e);
+    }
+  };
+
+  // Open scanner modal and start camera + detection (mobile devices)
+  const stopScanner = async () => {
+    try {
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
+        scanIntervalRef.current = null;
+      }
+      if (streamRef.current) {
+        try { streamRef.current.getTracks().forEach(t => t.stop()); } catch (e) { /* ignore */ }
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        try { videoRef.current.pause(); videoRef.current.srcObject = null; } catch (e) { /* ignore */ }
+      }
+      barcodeDetectorRef.current = null;
+      detectionBufferRef.current = [];
+      // stop Quagga if running
+      try {
+        if (window.Quagga && quaggaStartedRef.current) {
+          try { if (window.Quagga.offDetected) window.Quagga.offDetected(); window.Quagga.stop(); } catch (e) { /* ignore */ }
+          quaggaStartedRef.current = false;
+        }
+      } catch (e) { /* ignore */ }
+      setScanStatus('');
+    } finally {
+      setIsScannerOpen(false);
+    }
+  };
+
+  // Existing detection handler — kept for confirmed detections
+  const handleDetected = async (raw) => {
+    if (!raw) return;
+    // stop camera first
+    await stopScanner();
+    const scanned = String(raw || '').trim();
+    console.debug('Scanner confirmed raw value:', scanned);
+
+    // Build candidate variations to handle barcodes that include prefixes/suffixes
+    const candidates = [];
+    const addCandidate = (c) => { if (c && !candidates.includes(c)) candidates.push(c); };
+    addCandidate(scanned);
+    const lower = scanned.toLowerCase();
+    if (lower !== scanned) addCandidate(lower);
+    // digits-only (common when scanners add other characters)
+    const digits = scanned.replace(/\D+/g, '');
+    if (digits) addCandidate(digits);
+    // common merchant prefix variants
+    if (!scanned.startsWith('ord-') && digits) addCandidate(`ord-${digits}`);
+    if (!scanned.startsWith('order-') && digits) addCandidate(`order-${digits}`);
+
+    // Try local match first for each candidate
+    for (const c of candidates) {
+      const found = (orders || []).find(o => String(o.id) === c || String(o.name) === c || (o.id && String(c).includes(String(o.id))) || (o.name && String(c).includes(String(o.name))));
+      if (found) {
+        console.debug('Scanner matched local order for candidate:', c, found.id);
+        openOrderDetails(found);
+        return;
+      }
+    }
+
+    // If not found locally, try backend with each candidate
+    for (const c of candidates) {
+      try {
+        console.debug('Attempting fetchOrderFromServer for candidate:', c);
+        const fetched = await fetchOrderFromServer(c);
+        if (fetched) {
+          console.debug('Fetched order from server for candidate:', c, fetched.id);
+          openOrderDetails(fetched);
+          return;
+        }
+      } catch (e) {
+        console.warn('fetchOrderFromServer failed for candidate', c, e);
+      }
+    }
+
+    // Nothing matched
+    console.warn('Scanner: no order found for scanned value', scanned, 'tried candidates', candidates);
+    toast({ title: 'Not found', description: `No order found for scanned code: ${scanned}` });
+  };
+
+  // Buffer incoming reads and confirm only when a value is stable
+  const processScannedRaw = (raw) => {
+    if (!raw) return;
+    // normalize by trimming non-printables and whitespace
+    let norm = String(raw || '')
+      .replace(/\u0000/g, '')
+      .replace(/[\u0000-\u001F\u007F]+/g, '')
+      .trim();
+    if (!norm) return;
+    const now = Date.now();
+    const buf = detectionBufferRef.current || [];
+    buf.push({ v: norm, t: now });
+    // keep only recent entries within window
+    const windowEntries = buf.filter(it => now - it.t <= STABLE_WINDOW);
+    detectionBufferRef.current = windowEntries;
+    // count occurrences
+    const counts = {};
+    for (const e of windowEntries) counts[e.v] = (counts[e.v] || 0) + 1;
+    // find any value with enough matches
+    for (const [val, cnt] of Object.entries(counts)) {
+      if (cnt >= STABLE_COUNT) {
+        // clear buffer and confirm detection
+        detectionBufferRef.current = [];
+        // call confirmed handler
+        handleDetected(val);
+        return;
+      }
+    }
+    // update status with recent candidates and counts
+    const sample = Object.entries(counts).map(([k, v]) => `${k}(${v})`).slice(0,5).join(', ');
+    setScanStatus(`Seen: ${sample}`);
+  };
+
+  const openScannerModal = async () => {
+    setIsScannerOpen(true);
+    setScanStatus('Initializing camera...');
+    // Create BarcodeDetector if available
+    try {
+      if ('BarcodeDetector' in window) {
+        try {
+          barcodeDetectorRef.current = new window.BarcodeDetector({ formats: ['code_128', 'qr_code', 'ean_13', 'ean_8', 'upc_e', 'upc_a'] });
+        } catch (e) {
+          barcodeDetectorRef.current = null;
+        }
+      } else {
+        barcodeDetectorRef.current = null;
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast({ title: 'Unsupported', description: 'Camera access is not supported on this device/browser.' });
+        setIsScannerOpen(false);
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        try { await videoRef.current.play(); } catch (e) { /* ignore */ }
+      }
+      // start detection loop
+      if (barcodeDetectorRef.current) {
+        setScanStatus('Scanning...');
+        scanIntervalRef.current = setInterval(async () => {
+          try {
+            // Some browsers require an ImageBitmap rather than a direct video element
+            let imageBitmap = null;
+            try {
+              imageBitmap = await createImageBitmap(videoRef.current);
+            } catch (imgErr) {
+              // fallback: try passing video element directly
+            }
+            const target = imageBitmap || videoRef.current;
+            const results = await barcodeDetectorRef.current.detect(target);
+            if (imageBitmap && imageBitmap.close) imageBitmap.close();
+            if (results && results.length) {
+              const raw = results[0].rawValue || results[0].raw; // rawValue is standard
+              if (raw) {
+                // push into stabilization buffer instead of immediate accept
+                processScannedRaw(raw);
+              }
+            }
+          } catch (err) {
+            // detection can throw on some devices; update status occasionally
+            // console.warn('barcode detect error', err);
+            setScanStatus('Scanning (no detection)');
+          }
+        }, 400);
+      } else {
+        // No BarcodeDetector available — notify user
+        setScanStatus('No BarcodeDetector API — falling back to QuaggaJS');
+        // Load QuaggaJS from CDN and start
+        try {
+          if (!window.Quagga) {
+            await new Promise((resolve, reject) => {
+              const s = document.createElement('script');
+              s.src = 'https://unpkg.com/quagga@0.12.1/dist/quagga.min.js';
+              s.onload = () => resolve();
+              s.onerror = (e) => reject(e);
+              document.body.appendChild(s);
+            });
+          }
+          const target = document.getElementById('quagga-scanner');
+          if (window.Quagga && target) {
+            window.Quagga.init({
+              inputStream: {
+                type: 'LiveStream',
+                constraints: { facingMode: 'environment' },
+                target: target,
+              },
+              decoder: {
+                readers: ['code_128_reader','ean_reader','ean_8_reader','upc_reader','upc_e_reader']
+              },
+              locate: true,
+            }, function(err) {
+              if (err) {
+                console.warn('Quagga init error', err);
+                setScanStatus('Quagga init failed');
+                return;
+              }
+              try {
+                window.Quagga.start();
+                quaggaStartedRef.current = true;
+                setScanStatus('Scanning (Quagga)...');
+              } catch (e) {
+                console.warn('Quagga start failed', e);
+                setScanStatus('Quagga start failed');
+              }
+            });
+            window.Quagga.onDetected(function(result) {
+              try {
+                if (result && result.codeResult && result.codeResult.code) {
+                  const code = result.codeResult.code;
+                  // use stabilization buffer
+                  processScannedRaw(code);
+                }
+              } catch (e) { /* ignore */ }
+            });
+          } else {
+            setScanStatus('Quagga not available');
+            toast({ title: 'No scanner', description: 'Automatic scanning is not available in this browser.' });
+          }
+        } catch (err) {
+          console.error('Quagga load/start error', err);
+          setScanStatus('Quagga load failed');
+          toast({ title: 'Scanner fallback failed', description: 'Could not load scanner fallback.' });
+        }
+      }
+    } catch (err) {
+      console.error('openScannerModal error', err);
+      toast({ title: 'Camera error', description: 'Could not open camera. Check permissions.' });
+      setIsScannerOpen(false);
     }
   };
 
@@ -1013,6 +1262,85 @@ const openMarkItemsDialog = (order) => {
 
       document.body.appendChild(tempDiv);
 
+      // Generate barcode images locally (preferred) to avoid CORS issues.
+      // We target images with class 'barcode' or known external barcode URL patterns.
+      const barcodeImgs = Array.from(tempDiv.querySelectorAll('img.barcode'))
+        .concat(Array.from(tempDiv.querySelectorAll('img')).filter(i => { const s = (i.getAttribute('src')||''); return s.includes('barcode.tec-it.com') || s.includes('barcode-generator'); }));
+      if (barcodeImgs.length > 0) {
+        // Load JsBarcode from CDN if not available
+        if (typeof window !== 'undefined' && !window.JsBarcode) {
+          await new Promise((resolve) => {
+            try {
+              const s = document.createElement('script');
+              s.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js';
+              s.async = true;
+              s.onload = () => resolve();
+              s.onerror = () => resolve();
+              document.head.appendChild(s);
+            } catch (e) { resolve(); }
+          });
+        }
+        // For each barcode image, render a canvas via JsBarcode if available, else leave as-is
+        for (const img of barcodeImgs) {
+          try {
+            const idValue = (img.getAttribute('data-barcode') || '') || (img.getAttribute('alt') || '').replace(/[^\w-]/g, '') || null;
+            // Prefer explicit data-barcode attribute, else try to use order id from surrounding template tokens
+            const value = idValue || (img.getAttribute('src') || '').match(/[?&]data=([^&]+)/)?.[1] || null;
+            const finalVal = value ? decodeURIComponent(value) : (order && order.id ? order.id : null);
+            if (!finalVal) continue;
+            if (window && window.JsBarcode && typeof window.JsBarcode === 'function') {
+              const canvas = document.createElement('canvas');
+              // Set reasonable size
+              canvas.width = 400;
+              canvas.height = 80;
+              try {
+                window.JsBarcode(canvas, String(finalVal), { format: 'CODE128', displayValue: false, height: 60, margin: 0, width: 1 });
+                img.src = canvas.toDataURL('image/png');
+                if (img.decode) try { await img.decode(); } catch (e) { /* ignore */ }
+                continue;
+              } catch (e) { /* fall through to fetch approach */ }
+            }
+          } catch (e) {
+            // ignore and let inlining handle it
+          }
+        }
+      }
+
+      // Ensure external images are embedded as data URLs so html2canvas captures them reliably.
+      const imgs = Array.from(tempDiv.querySelectorAll('img'));
+      if (imgs.length > 0) {
+        await Promise.all(imgs.map(async (img) => {
+          const src = img.getAttribute('src') || '';
+          if (!src) return;
+          // skip already inlined images
+          if (src.startsWith('data:')) {
+            try { if (img.decode) await img.decode(); } catch (e) { /* ignore */ }
+            return;
+          }
+          try {
+            // Try fetching image and converting to data URL
+            const resImg = await fetch(src, { mode: 'cors' });
+            if (!resImg.ok) throw new Error('image fetch failed');
+            const blob = await resImg.blob();
+            const reader = new FileReader();
+            const dataUrl = await new Promise((resolve, reject) => {
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            img.src = dataUrl;
+            try { if (img.decode) await img.decode(); } catch (e) { /* ignore */ }
+          } catch (e) {
+            // If fetch or conversion fails (CORS/etc), fallback to waiting for natural load
+            await new Promise((resolve) => {
+              if (img.complete) return resolve();
+              img.onload = () => resolve();
+              img.onerror = () => resolve();
+            });
+          }
+        }));
+      }
+
       try {
         // Convert HTML to canvas
         const canvas = await html2canvas(tempDiv, {
@@ -1373,9 +1701,52 @@ const openMarkItemsDialog = (order) => {
         if (!body) continue;
         // body may be { order: {...} } or the order object directly
         const maybeOrder = body.order ? body.order : body;
-        if (maybeOrder && (Array.isArray(maybeOrder.items) || Array.isArray(maybeOrder.line_items))) return maybeOrder;
-        // if order exists but items missing, still return it for further inspection
-        if (maybeOrder && maybeOrder.id) return maybeOrder;
+        if (maybeOrder && maybeOrder.id) {
+          // Enrich order with merchant and courier info when possible
+          try {
+            // attach merchant doc if merchantId present
+            const merchantId = maybeOrder.merchantId || maybeOrder.merchant || (maybeOrder.shop && maybeOrder.shop.id) || null;
+            if (merchantId) {
+              try {
+                const mres = await fetch(`${base}/api/merchants/${encodeURIComponent(merchantId)}`, { cache: 'no-store' });
+                if (mres.ok) {
+                  const mbody = await mres.json().catch(() => null);
+                  if (mbody) maybeOrder.merchant = mbody.merchant ? mbody.merchant : mbody;
+                }
+              } catch (e) {
+                // ignore merchant fetch errors
+              }
+            }
+
+            // If courier/deliveryPartner is missing, try to infer from order fields or merchant defaults
+            if (!maybeOrder.deliveryPartner && !maybeOrder.courier) {
+              // if order has courierId or deliveryPartnerId, try to fetch courier
+              const courierId = maybeOrder.courierId || maybeOrder.deliveryPartnerId || maybeOrder.courier_id || null;
+              if (courierId) {
+                try {
+                  const cres = await fetch(`${base}/api/couriers/${encodeURIComponent(courierId)}`, { cache: 'no-store' });
+                  if (cres.ok) {
+                    const cbody = await cres.json().catch(() => null);
+                    if (cbody) maybeOrder.courier = cbody.courier ? cbody.courier : cbody;
+                    if (!maybeOrder.deliveryPartner && maybeOrder.courier && (maybeOrder.courier.name || maybeOrder.courier.displayName)) {
+                      maybeOrder.deliveryPartner = maybeOrder.courier.name || maybeOrder.courier.displayName;
+                    }
+                  }
+                } catch (e) {
+                  // ignore courier fetch errors
+                }
+              }
+              // try merchant default courier if still missing
+              if (!maybeOrder.deliveryPartner && maybeOrder.merchant && (maybeOrder.merchant.defaultCourier || maybeOrder.merchant.defaultDeliveryPartner)) {
+                maybeOrder.deliveryPartner = maybeOrder.merchant.defaultCourier || maybeOrder.merchant.defaultDeliveryPartner;
+              }
+            }
+          } catch (e) {
+            // ignore enrichment errors
+          }
+          // return the enriched order
+          return maybeOrder;
+        }
       } catch (err) {
         console.warn('fetchOrderFromServer candidate error', err);
         continue;
@@ -1934,17 +2305,57 @@ const openMarkItemsDialog = (order) => {
               </ul>
             </div>
 
-            <div className="flex justify-end gap-2 mt-6">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mt-6">
               {orderDetails && (
-                <Button className="px-4 py-2 text-sm" onClick={() => openAdminEditDialog(orderDetails)}>Edit</Button>
+                <>
+                  <Button className="px-4 py-2 text-sm w-full sm:w-auto" onClick={() => openAdminEditDialog(orderDetails)}>Edit</Button>
+                  <Button className="px-4 py-2 text-sm w-full sm:w-auto" onClick={() => openWeightDialogForOrder(orderDetails)}>Mark Packed</Button>
+                  {orderDetails?.status === 'packed' && (
+                    <Button
+                      className="px-4 py-2 text-sm w-full sm:w-auto"
+                      onClick={() => {
+                        // Open tracking dialog for this single order so user can enter tracking code then dispatch
+                        setSelectedOrderIds([orderDetails.id]);
+                        setTrackingCodes(prev => ({ ...prev, [orderDetails.id]: orderDetails.trackingCode || '' }));
+                        setIsOrderDetailsDialogOpen(false);
+                        setIsTrackingCodeDialogOpen(true);
+                      }}
+                    >
+                      Dispatch
+                    </Button>
+                  )}
+                </>
               )}
-              <Button variant="outline" className="px-4 py-2 text-sm" onClick={() => setIsOrderDetailsDialogOpen(false)}>Close</Button>
+              <Button variant="outline" className="px-4 py-2 text-sm w-full sm:w-auto" onClick={() => setIsOrderDetailsDialogOpen(false)}>Close</Button>
             </div>
         </DialogContent>
       </Dialog>
 
-      <h1 className="text-3xl font-bold mb-4">All Orders</h1>
-      <Button onClick={() => setIsAddOrderOpen(true)} className="mb-4">Add Order</Button>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-3xl font-bold">All Orders</h1>
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setIsAddOrderOpen(true)} className="mb-0">Add Order</Button>
+          <Button onClick={openScannerModal} className="block sm:hidden bg-gray-800 text-white px-3 py-1 rounded">Scanner</Button>
+        </div>
+      </div>
+
+      {/* Scanner Dialog (mobile-only) */}
+      <Dialog open={isScannerOpen} onOpenChange={(v) => { if (!v) stopScanner(); setIsScannerOpen(v); }}>
+        <DialogContent className="max-w-full sm:max-w-md p-2 sm:p-4 max-h-[90vh] overflow-hidden bg-black">
+          <div className="flex flex-col items-stretch gap-2">
+            <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+              <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" playsInline muted />
+              <div id="quagga-scanner" className="absolute inset-0 w-full h-full" />
+            </div>
+            <div className="text-sm text-white px-2">
+              {scanStatus ? <span>{scanStatus}</span> : <span>Point your phone camera at the barcode. The scanner will auto-detect and open the order.</span>}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => stopScanner()}>Close</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -2170,7 +2581,7 @@ const openMarkItemsDialog = (order) => {
 
        {/* Add Order Manual Entry Dialog */}
        <Dialog open={isAddOrderOpen} onOpenChange={setIsAddOrderOpen}>
-        <DialogContent className="max-w-full sm:max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-y-auto" aria-describedby="add-order-manual-desc">
+        <DialogContent className="max-w-full sm:max-w-lg p-4 sm:p-6 max-h-[90vh] overflow-visible" aria-describedby="add-order-manual-desc">
            <DialogTitle>Add Order - Manual Entry</DialogTitle>
            <DialogDescription id="add-order-manual-desc">
              Add order manually.
@@ -2375,10 +2786,36 @@ const openMarkItemsDialog = (order) => {
                <Button
   className="px-4 py-2 bg-blue-600 text-white text-sm rounded"
   onClick={async () => {
+    try {
       if (isEditingOrder && editOrderId) {
-      await saveTrackingCodeAndRefresh(editOrderId, newTrackingCode);
+        // Build update payload from the edit form fields
+        const payload = {
+          merchantId: selectedMerchantId || undefined,
+          customerName: newCustomerName || undefined,
+          address: newAddress || undefined,
+          city: newCity || undefined,
+          state: newState || undefined,
+          pincode: newPincode || undefined,
+          phone: newPhone || undefined,
+          deliveryPartner: newDeliveryPartner || undefined,
+          items: newItems || undefined,
+          status: newStatus || undefined,
+          trackingCode: newTrackingCode || undefined,
+        };
+        await updateOrder(editOrderId, payload);
+        toast({ title: 'Success', description: 'Order updated.' });
+        setIsEditingOrder(false);
+        setEditOrderId(null);
+      } else {
+        // new order flow
+        await handleSaveNewOrder();
+      }
+    } catch (err) {
+      console.error('Failed to save order:', err);
+      toast({ title: 'Error', description: 'Failed to save order.', variant: 'destructive' });
+    } finally {
+      setIsAddOrderOpen(false);
     }
-    setIsAddOrderOpen(false);
   }}
 >
   Save

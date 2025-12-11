@@ -1,0 +1,64 @@
+<!-- shipping-label.html -->
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Shipping Label</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    /* Print-friendly label sizing — adjust to printer / paper */
+    .label {
+      width: 100mm;
+      height: 70mm;
+      padding: 8mm;
+      box-sizing: border-box;
+      font-family: Arial, Helvetica, sans-serif;
+      color: #111;
+      background: #fff;
+    }
+    .ship-header { display:flex; justify-content:space-between; align-items:center; }
+    .merchant { font-weight:700; font-size:14px; }
+    .order-id { font-weight:700; font-size:12px; }
+    .addr { margin-top:6px; font-size:12px; line-height:1.2; }
+    .barcode-wrap { text-align:center; margin-top:8px; }
+    .barcode-wrap img { width:180px; height:45px; object-fit:contain; }
+    .barcode-wrap svg { width:180px; height:45px; display:block; margin:0 auto; }
+    /* Ensure label prints at actual size */
+    @media print {
+      body { margin:0; }
+      .label { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="label" id="label-root" data-order-id="{{ order.id }}">
+    <div class="ship-header">
+      <div>
+        <div class="merchant">{{ merchant.companyName || merchant.name || '' }}</div>
+        <div class="order-id">Order: {{ order.id }}</div>
+      </div>
+      <div>
+        <div style="font-size:12px">Date: {{ order.date || order.createdAt }}</div>
+      </div>
+    </div>
+
+    <div class="addr">
+      <div><strong>To:</strong></div>
+      <div>{{ order.customerName }}</div>
+      <div>{{ order.address }}</div>
+      <div>{{ order.city }}, {{ order.state }} — PIN: {{ order.pincode }}</div>
+      <div>Phone: {{ order.phone }}</div>
+    </div>
+
+    <div class="barcode-wrap">
+        <!-- Barcode image: orders.jsx looks for `img.barcode` and will populate its `src` with a data-URL -->
+        <img id="barcode-img" class="barcode" data-barcode="{{ order.id }}" src="{{ barcode || '' }}" alt="Order barcode" style="display:block;margin:0 auto;width:180px;height:45px;object-fit:contain;" />
+        <div id="order-id-text" style="font-size:11px; margin-top:4px; text-align:center;">{{ order.id }}</div>
+    </div>
+
+    <div style="margin-top:6px; font-size:11px;">Courier: {{ order.deliveryPartner || '—' }}</div>
+  </div>
+
+  <!-- Barcode generation is handled by `orders.jsx` (it detects `img.barcode` and sets a data-URL). No inline barcode script here. -->
+</body>
+</html>

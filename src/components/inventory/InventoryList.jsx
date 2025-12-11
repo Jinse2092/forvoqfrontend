@@ -38,16 +38,21 @@ const InventoryList = ({ inventory, openEditModal, openAdjustModal, getProductNa
         <TableBody>
           <AnimatePresence>
             {inventory.map((item, index) => {
-              const isLowStock = item.minStockLevel > 0 && item.quantity <= item.minStockLevel; // Check minStockLevel > 0
-              const isOverStock = item.maxStockLevel > 0 && item.quantity > item.maxStockLevel; // Check maxStockLevel > 0
+              // Normalize numeric fields so missing/undefined values behave as zero
+              const qty = typeof item.quantity === 'number' ? item.quantity : (item.quantity ? Number(item.quantity) : 0);
+              const min = typeof item.minStockLevel === 'number' ? item.minStockLevel : (item.minStockLevel ? Number(item.minStockLevel) : 0);
+              const max = typeof item.maxStockLevel === 'number' ? item.maxStockLevel : (item.maxStockLevel ? Number(item.maxStockLevel) : 0);
+
+              const isLowStock = min > 0 && qty <= min;
+              const isOverStock = max > 0 && qty > max;
               let statusVariant = 'default';
               let statusText = 'OK';
               if (isLowStock) {
-                 statusVariant = 'destructive';
-                 statusText = 'Low';
+                statusVariant = 'destructive';
+                statusText = 'Low';
               } else if (isOverStock) {
-                 statusVariant = 'warning'; // Use a warning variant
-                 statusText = 'Over';
+                statusVariant = 'warning'; // Use a warning variant
+                statusText = 'Over';
               }
 
 
@@ -64,9 +69,9 @@ const InventoryList = ({ inventory, openEditModal, openAdjustModal, getProductNa
                   {isAdminView && <TableCell className="text-xs text-muted-foreground">{getMerchantName(item.merchantId)}</TableCell>}
                   <TableCell className="font-medium">{getProductName(item.productId)}</TableCell>
                   <TableCell>{item.location}</TableCell>
-                  <TableCell className="text-right">{item.quantity}</TableCell>
-                  <TableCell className="text-right">{item.minStockLevel > 0 ? item.minStockLevel : '-'}</TableCell>
-                  <TableCell className="text-right">{item.maxStockLevel > 0 ? item.maxStockLevel : '-'}</TableCell>
+                  <TableCell className="text-right">{qty}</TableCell>
+                  <TableCell className="text-right">{min > 0 ? min : '-'}</TableCell>
+                  <TableCell className="text-right">{max > 0 ? max : '-'}</TableCell>
                   <TableCell className="text-center">
                      <Badge variant={statusVariant} className="text-xs">
                        {isLowStock && <AlertTriangle className="h-3 w-3 mr-1 inline-block" />}

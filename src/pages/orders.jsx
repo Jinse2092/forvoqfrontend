@@ -516,8 +516,8 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
 
     if (mode === 'manual') {
       console.log('Submitting order with city:', city, 'state:', state);
-      if (!customerName || !address || !pincode || items.some(item => !item.productId || item.quantity <= 0)) {
-        alert('Please fill all fields including pincode and add one product with quantity.');
+      if (!customerName || items.some(item => !item.productId || item.quantity <= 0)) {
+        alert('Please enter customer name and add at least one product with a valid quantity.');
         return;
       }
       const productId = items[0].productId;
@@ -753,7 +753,6 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
   const handleSaveEdit = () => {
     if (!editOrder) return;
     if (!editCustomerName.trim()) { alert('Customer name required'); return; }
-    if (!editAddress.trim()) { alert('Address required'); return; }
     if (editItems.length === 0 || editItems.some(it => !it.productId || it.quantity <= 0)) { alert('Add at least one valid item'); return; }
 
     // Recalculate item weights
@@ -1504,7 +1503,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         <>
       {/* Edit Order Dialog */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent className="w-full max-w-sm sm:max-w-md p-3 sm:p-6 max-h-[80vh] overflow-auto" aria-describedby="edit-order-desc">
+        <DialogContent className="w-full max-w-sm sm:max-w-md p-3 sm:p-6 max-h-[80vh] overflow-visible" aria-describedby="edit-order-desc">
           <DialogTitle>Edit Order</DialogTitle>
           <DialogDescription id="edit-order-desc">Edit order details (only allowed when pending)</DialogDescription>
           <div className="space-y-4 mt-4">
@@ -1553,7 +1552,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         <DialogTrigger asChild>
          
         </DialogTrigger>
-        <DialogContent className="w-full max-w-sm sm:max-w-md p-3 sm:p-6 max-h-[80vh] overflow-auto" aria-describedby="add-order-desc">
+        <DialogContent className="w-full max-w-sm sm:max-w-md p-3 sm:p-6 max-h-[80vh] overflow-visible" aria-describedby="add-order-desc">
           <DialogTitle>Add Order</DialogTitle>
           <DialogDescription id="add-order-desc">
             Add order manually
