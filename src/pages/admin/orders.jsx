@@ -1542,12 +1542,15 @@ const openMarkItemsDialog = (order) => {
         // Save packed weight explicitly as `packedweight` along with totalWeightKg
         // Do NOT send client-side packingDetails: server will compute authoritative packing breakdown
         let updatedFields = { totalWeightKg: w, packedweight: w, status: 'packed', packedAt: now, boxFee: boxFeeVal, boxCutting: boxCuttingVal };
-        if (order.items && order.items.length === 1) {
-          const item = order.items[0];
-          // Persist per-item weight under the key the server expects for per-item calculations
-          // Server looks for `it.weightPerItemKg` when computing packing fees; also set `weightKg` for compatibility
-          const updatedItem = { ...item, weightPerItemKg: Number(w) || 0, weightKg: Number(w) || 0 };
-          updatedFields.items = [updatedItem];
+        if (order.items && order.items.length > 0) {
+          // Distribute entered total weight across items proportionally by quantity.
+          const totalQty = (order.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0) || 1;
+          const perItem = Number(w) / totalQty;
+          updatedFields.items = (order.items || []).map(it => ({
+            ...it,
+            weightPerItemKg: Number(perItem) || 0,
+            weightKg: Number(perItem) || 0,
+          }));
         }
         console.log('MarkPacked: updating order', order.id, 'with', updatedFields);
         const res = await updateOrder(order.id, updatedFields);
@@ -2162,7 +2165,7 @@ const openMarkItemsDialog = (order) => {
             {(ordersForWeightUpdate || []).map((order) => (
               <div key={order.id} className="flex flex-col sm:flex-row sm:items-center gap-2">
                 <div className="flex items-center gap-2">
-                  <Label htmlFor={`weight-${order.id}`}>Order ID: {order.id}</Label>
+                  <Label htmlFor={`weight-${order.id}`}>Customer: {order.customerName || order.id}</Label>
                   <Input
                     id={`weight-${order.id}`}
                     type="number"
