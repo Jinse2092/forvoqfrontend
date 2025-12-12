@@ -1482,11 +1482,48 @@ const openMarkItemsDialog = (order) => {
     try {
       const now = new Date().toISOString();
       const results = await Promise.all(ordersForWeightUpdate.map(async (order) => {
-        const w = parseFloat(weights[order.id]) || 0;
+        // Prefer reading directly from the input DOM element to avoid stale React state
+        let w = 0;
+        try {
+          const el = typeof document !== 'undefined' ? document.getElementById(`weight-${order.id}`) : null;
+          const raw = el ? el.value : undefined;
+          if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
+            const parsed = parseFloat(raw);
+            w = isFinite(parsed) ? parsed : (parseFloat(weights[order.id]) || 0);
+          } else {
+            w = parseFloat(weights[order.id]) || 0;
+          }
+        } catch (e) {
+          w = parseFloat(weights[order.id]) || 0;
+        }
         // Box fee and cutting
         const pf = packingFeesByOrder && packingFeesByOrder[order.id] ? packingFeesByOrder[order.id] : null;
-        const boxFeeVal = boxFees[order.id] !== undefined ? parseFloat(boxFees[order.id]) || 0 : (pf && pf.boxFee !== undefined ? Number(pf.boxFee) : (order.boxFee !== undefined ? Number(order.boxFee) : 0));
-        const boxCuttingVal = boxCuttings[order.id] !== undefined ? Boolean(boxCuttings[order.id]) : (pf && pf.boxCutting !== undefined ? Boolean(pf.boxCutting) : Boolean(order.boxCutting));
+        // Read box fee and cutting directly from inputs when possible to ensure latest values
+        let boxFeeVal;
+        try {
+          const elBox = typeof document !== 'undefined' ? document.getElementById(`boxFee-${order.id}`) : null;
+          const rawBox = elBox ? elBox.value : undefined;
+          if (rawBox !== undefined && rawBox !== null && String(rawBox).trim() !== '') {
+            const parsedBox = parseFloat(rawBox);
+            boxFeeVal = isFinite(parsedBox) ? parsedBox : (boxFees[order.id] !== undefined ? parseFloat(boxFees[order.id]) || 0 : (pf && pf.boxFee !== undefined ? Number(pf.boxFee) : (order.boxFee !== undefined ? Number(order.boxFee) : 0)));
+          } else {
+            boxFeeVal = boxFees[order.id] !== undefined ? parseFloat(boxFees[order.id]) || 0 : (pf && pf.boxFee !== undefined ? Number(pf.boxFee) : (order.boxFee !== undefined ? Number(order.boxFee) : 0));
+          }
+        } catch (e) {
+          boxFeeVal = boxFees[order.id] !== undefined ? parseFloat(boxFees[order.id]) || 0 : (pf && pf.boxFee !== undefined ? Number(pf.boxFee) : (order.boxFee !== undefined ? Number(order.boxFee) : 0));
+        }
+
+        let boxCuttingVal;
+        try {
+          const elCut = typeof document !== 'undefined' ? document.getElementById(`boxCutting-${order.id}`) : null;
+          if (elCut) {
+            boxCuttingVal = !!elCut.checked;
+          } else {
+            boxCuttingVal = boxCuttings[order.id] !== undefined ? Boolean(boxCuttings[order.id]) : (pf && pf.boxCutting !== undefined ? Boolean(pf.boxCutting) : Boolean(order.boxCutting));
+          }
+        } catch (e) {
+          boxCuttingVal = boxCuttings[order.id] !== undefined ? Boolean(boxCuttings[order.id]) : (pf && pf.boxCutting !== undefined ? Boolean(pf.boxCutting) : Boolean(order.boxCutting));
+        }
 
         // Calculate per-order extra: boxFee + (boxCutting ? 1 : 0) + tracking fee
         const trackingFee = 3; // fixed tracking fee as requested
@@ -1513,6 +1550,39 @@ const openMarkItemsDialog = (order) => {
         console.log('MarkPacked: updating order', order.id, 'with', updatedFields);
         const res = await updateOrder(order.id, updatedFields);
         console.log('MarkPacked: server response for', order.id, res);
+        // Verify server persisted the important packing fields. If not, fetch authoritative order and log.
+        const persistedOK = res && (
+          (res.totalWeightKg !== undefined && res.totalWeightKg !== null && res.totalWeightKg !== '') ||
+          (res.packedweight !== undefined && res.packedweight !== null && res.packedweight !== '') ||
+          (res.boxFee !== undefined && res.boxFee !== null) ||
+          (res.boxCutting !== undefined)
+        );
+        if (!persistedOK) {
+          try {
+            console.warn(`MarkPacked: server response missing packed fields for ${order.id}, fetching server copy`);
+            const serverCopy = await fetchOrderFromServer(order.id);
+            console.log('MarkPacked: server copy for', order.id, serverCopy);
+            if (serverCopy) {
+              // If server copy contains the fields, replace local order with authoritative copy
+              if (typeof replaceOrder === 'function') replaceOrder(serverCopy);
+              if (serverCopy.totalWeightKg !== undefined || serverCopy.packedweight !== undefined || serverCopy.boxFee !== undefined) {
+                console.info(`MarkPacked: server persisted fields for ${order.id}`, {
+                  totalWeightKg: serverCopy.totalWeightKg,
+                  packedweight: serverCopy.packedweight,
+                  boxFee: serverCopy.boxFee,
+                  boxCutting: serverCopy.boxCutting,
+                });
+              } else {
+                toast({ title: 'Warning', description: `Server did not persist packing data for ${order.id}. Check backend logs.`, variant: 'destructive' });
+              }
+            } else {
+              toast({ title: 'Warning', description: `Unable to verify server persistence for ${order.id}.`, variant: 'destructive' });
+            }
+          } catch (e) {
+            console.error('MarkPacked: verification fetch failed', e);
+            toast({ title: 'Warning', description: `Verification failed for ${order.id}. See console for details.`, variant: 'destructive' });
+          }
+        }
         return res;
       }));
       console.log('MarkPacked: all results', results);

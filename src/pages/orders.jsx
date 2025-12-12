@@ -1503,7 +1503,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         <>
       {/* Edit Order Dialog */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent className="w-full max-w-sm sm:max-w-md p-3 sm:p-6 max-h-[80vh] overflow-visible" aria-describedby="edit-order-desc">
+        <DialogContent className="w-full max-w-sm sm:max-w-md p-3 sm:p-6 max-h-[80vh] overflow-auto" aria-describedby="edit-order-desc">
           <DialogTitle>Edit Order</DialogTitle>
           <DialogDescription id="edit-order-desc">Edit order details (only allowed when pending)</DialogDescription>
           <div className="space-y-4 mt-4">
@@ -1540,9 +1540,9 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
               <Button variant="outline" onClick={handleAddEditItem}>Add Item</Button>
               
             </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
-              <Button onClick={handleSaveEdit}>Save</Button>
+            <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
+              <Button className="w-full sm:w-auto" variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
+              <Button className="w-full sm:w-auto" onClick={handleSaveEdit}>Save</Button>
             </div>
           </div>
         </DialogContent>
@@ -1552,7 +1552,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         <DialogTrigger asChild>
          
         </DialogTrigger>
-        <DialogContent className="w-full max-w-sm sm:max-w-md p-3 sm:p-6 max-h-[80vh] overflow-visible" aria-describedby="add-order-desc">
+        <DialogContent className="w-full max-w-sm sm:max-w-md p-3 sm:p-6 max-h-[80vh] overflow-auto" aria-describedby="add-order-desc">
           <DialogTitle>Add Order</DialogTitle>
           <DialogDescription id="add-order-desc">
             Add order manually
@@ -1663,9 +1663,9 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                 </div>
               </TabsContent>
             </Tabs>
-            <div className="mt-4 flex justify-end space-x-2">
-              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-              <Button type="button" onClick={() => { console.log('Submit clicked'); handleSubmit(); }}>Submit</Button>
+            <div className="mt-4 flex flex-col sm:flex-row sm:justify-end gap-2">
+              <Button className="w-full sm:w-auto" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+              <Button className="w-full sm:w-auto" type="button" onClick={() => { console.log('Submit clicked'); handleSubmit(); }}>Submit</Button>
             </div>
           </div>
         </DialogContent>
