@@ -246,7 +246,7 @@ const AdminOrders = () => {
   const [scanStatus, setScanStatus] = useState('');
   const quaggaStartedRef = useRef(false);
   const detectionBufferRef = useRef([]);
-  const STABLE_COUNT = 3; // require 3 matching reads
+  const STABLE_COUNT = 1; // open on first detection (no stability required)
   const STABLE_WINDOW = 1200; // ms window to consider
 
   // Filters
@@ -1544,7 +1544,9 @@ const openMarkItemsDialog = (order) => {
         let updatedFields = { totalWeightKg: w, packedweight: w, status: 'packed', packedAt: now, boxFee: boxFeeVal, boxCutting: boxCuttingVal };
         if (order.items && order.items.length === 1) {
           const item = order.items[0];
-          const updatedItem = { ...item, weightKg: w };
+          // Persist per-item weight under the key the server expects for per-item calculations
+          // Server looks for `it.weightPerItemKg` when computing packing fees; also set `weightKg` for compatibility
+          const updatedItem = { ...item, weightPerItemKg: Number(w) || 0, weightKg: Number(w) || 0 };
           updatedFields.items = [updatedItem];
         }
         console.log('MarkPacked: updating order', order.id, 'with', updatedFields);

@@ -469,19 +469,45 @@ export const InventoryProvider = ({ children }) => {
 
   const updateOrder = async (orderId, updatedFields) => {
     try {
+      // Coerce numeric/boolean fields to ensure server receives correct types
+      const payload = { ...updatedFields, id: orderId };
+      if (payload.totalWeightKg !== undefined) payload.totalWeightKg = Number(payload.totalWeightKg);
+      if (payload.packedweight !== undefined) payload.packedweight = Number(payload.packedweight);
+      if (payload.boxFee !== undefined) payload.boxFee = Number(payload.boxFee);
+      if (payload.trackingFee !== undefined) payload.trackingFee = Number(payload.trackingFee);
+      if (payload.packingFee !== undefined) payload.packingFee = Number(payload.packingFee);
+      if (payload.boxCutting !== undefined) payload.boxCutting = Boolean(payload.boxCutting);
+
       const response = await fetch(`https://forwokbackend-1.onrender.com/api/orders/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...updatedFields, id: orderId }),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error('Failed to update order');
       const savedOrder = await response.json();
+
+      // Replace local order with authoritative server copy returned
       setOrders(prev => prev.map(o => o.id === orderId ? savedOrder : o));
       toast({ title: "Order Updated", description: `Order ${orderId} has been updated.` });
+
+      // Ensure we fetch a fresh authoritative copy from server to verify persistence.
+      // The server exposes a debug GET at /api/orders-debug/:id (there is no GET /api/orders/:id).
+      try {
+        const debugResp = await fetch(`https://forwokbackend-1.onrender.com/api/orders-debug/${orderId}`);
+        if (debugResp.ok) {
+          const debugJson = await debugResp.json();
+          const freshOrder = debugJson && (debugJson.order || debugJson);
+          if (freshOrder) setOrders(prev => prev.map(o => o.id === orderId ? freshOrder : o));
+        }
+      } catch (e) {
+        // non-fatal
+        console.warn('updateOrder: fetch debug copy failed', e);
+      }
+
       await fetchAllData();
-      // Return the saved order for callers that want to inspect the result
       return savedOrder;
     } catch (error) {
+      console.error('updateOrder error', error);
       toast({ title: "Error", description: "Failed to update order.", variant: "destructive" });
     }
   };
