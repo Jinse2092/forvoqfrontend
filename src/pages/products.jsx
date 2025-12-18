@@ -413,10 +413,10 @@ const Products = () => {
                     <PlusCircle className="mr-2 h-4 w-4" /> Bulk Add
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="w-full max-w-full sm:max-w-2xl p-4 sm:p-6 overflow-auto max-h-[85vh]">
+                <DialogContent className="w-full max-w-full sm:max-w-2xl p-4 sm:p-6 overflow-auto max-h-[85vh]" aria-describedby="bulk-add-products-desc">
                   <DialogHeader>
                     <DialogTitle>Bulk Add Products</DialogTitle>
-                    <DialogDescription>Add multiple products for a merchant and apply bulk fees.</DialogDescription>
+                    <DialogDescription id="bulk-add-products-desc">Add multiple products for a merchant and apply bulk fees.</DialogDescription>
                   </DialogHeader>
                   <form onSubmit={handleBulkSubmit} className="space-y-4">
                     <div className="grid grid-cols-4 items-center gap-4">

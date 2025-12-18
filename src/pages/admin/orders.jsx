@@ -2416,8 +2416,9 @@ const openMarkItemsDialog = (order) => {
 
       {/* Scanner Dialog (mobile-only) */}
       <Dialog open={isScannerOpen} onOpenChange={(v) => { if (!v) stopScanner(); setIsScannerOpen(v); }}>
-        <DialogContent className="max-w-full sm:max-w-md p-2 sm:p-4 max-h-[90vh] overflow-hidden bg-black">
-          <div className="flex flex-col items-stretch gap-2">
+          <DialogContent className="max-w-full sm:max-w-md p-2 sm:p-4 max-h-[90vh] overflow-hidden bg-black" aria-describedby="scanner-dialog-desc">
+            <DialogDescription id="scanner-dialog-desc" className="sr-only">Scanner dialog: point camera at barcode to auto-open an order.</DialogDescription>
+            <div className="flex flex-col items-stretch gap-2">
             <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
               <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" playsInline muted />
               <div id="quagga-scanner" className="absolute inset-0 w-full h-full" />
@@ -2877,19 +2878,21 @@ const openMarkItemsDialog = (order) => {
           status: newStatus || undefined,
           trackingCode: newTrackingCode || undefined,
         };
-        await updateOrder(editOrderId, payload);
+        console.debug('Saving order payload', payload);
+        const result = await updateOrder(editOrderId, payload);
+        if (!result) throw new Error('Server did not return updated order');
         toast({ title: 'Success', description: 'Order updated.' });
         setIsEditingOrder(false);
         setEditOrderId(null);
+        setIsAddOrderOpen(false);
       } else {
         // new order flow
         await handleSaveNewOrder();
+        setIsAddOrderOpen(false);
       }
     } catch (err) {
       console.error('Failed to save order:', err);
       toast({ title: 'Error', description: 'Failed to save order.', variant: 'destructive' });
-    } finally {
-      setIsAddOrderOpen(false);
     }
   }}
 >

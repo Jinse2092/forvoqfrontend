@@ -750,7 +750,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
   const handleAddEditItem = () => setEditItems(prev => [...prev, { productId: '', quantity: 1 }]);
   const handleRemoveEditItem = (index) => setEditItems(prev => prev.filter((_, i) => i !== index));
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editOrder) return;
     if (!editCustomerName.trim()) { alert('Customer name required'); return; }
     if (editItems.length === 0 || editItems.some(it => !it.productId || it.quantity <= 0)) { alert('Add at least one valid item'); return; }
@@ -793,9 +793,19 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
       packingFee: parseFloat(packingFee.toFixed(2)),
     };
 
-    updateOrder(editOrder.id, updated);
-    setIsEditOpen(false);
-    setEditOrder(null);
+    try {
+      console.log('Saving order payload', { id: editOrder.id, updated });
+      const saved = await updateOrder(editOrder.id, updated);
+      if (saved) {
+        setIsEditOpen(false);
+        setEditOrder(null);
+      } else {
+        toast({ title: 'Save Failed', description: 'Failed to save order. See console for details.', variant: 'destructive' });
+      }
+    } catch (err) {
+      console.error('handleSaveEdit error', err);
+      toast({ title: 'Save Error', description: 'An error occurred while saving the order.', variant: 'destructive' });
+    }
   };
 
   // Add helper to render top action buttons for merchant bulk actions
