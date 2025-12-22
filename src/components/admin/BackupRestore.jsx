@@ -42,7 +42,7 @@ const BackupRestore = ({ currentUser }) => {
   // Fetch all collections from server and download each collection as its own JSON file inside a zip
   const downloadServerExport = async () => {
     try {
-      const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://forwokbackend-1.onrender.com';
+      const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://api.forvoq.com';
       let ADMIN_SECRET = import.meta.env.VITE_ADMIN_UPLOAD_SECRET || '';
       if (!ADMIN_SECRET) {
         try {
@@ -134,7 +134,7 @@ const BackupRestore = ({ currentUser }) => {
 
       // 2) upload zip to server
       setIsUploading(true);
-      const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://forwokbackend-1.onrender.com';
+      const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://api.forvoq.com';
       let ADMIN_SECRET = import.meta.env.VITE_ADMIN_UPLOAD_SECRET || '';
       if (!ADMIN_SECRET) {
         try {

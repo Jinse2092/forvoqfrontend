@@ -41,7 +41,7 @@ export const InventoryProvider = ({ children }) => {
   const fetchAllData = async () => {
     try {
       const endpoints = ['products', 'inventory', 'transactions', 'orders', 'inbounds', 'users', 'savedPickupLocations'];
-      const results = await Promise.all(endpoints.map(ep => fetch(`https://forwokbackend-1.onrender.com/api/${ep}`).then(res => {
+      const results = await Promise.all(endpoints.map(ep => fetch(`https://api.forvoq.com/api/${ep}`).then(res => {
         if (!res.ok) throw new Error(`Failed to fetch ${ep}`);
         return res.json();
       })));
@@ -90,7 +90,7 @@ export const InventoryProvider = ({ children }) => {
         try {
           const existingPacked = results[1].find(i => i.id === inv.id)?.packedQuantity || 0;
           if (Number(existingPacked) !== Number(inv.packedQuantity)) {
-            await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${inv.id}`, {
+            await fetch(`https://api.forvoq.com/api/inventory/${inv.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ packedQuantity: Number(inv.packedQuantity) || 0 }),
@@ -168,7 +168,7 @@ export const InventoryProvider = ({ children }) => {
     try {
       console.log(`Sending POST request to backend for type: ${type}`, item);
       console.log(`POST /api/${type} request body:`, JSON.stringify(item, null, 2));
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/${type}`, {
+      const response = await fetch(`https://api.forvoq.com/api/${type}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(item),
@@ -193,7 +193,7 @@ export const InventoryProvider = ({ children }) => {
   // --- Authentication Simulation ---
   const login = async (email, password) => {
     try {
-      const response = await fetch('https://forwokbackend-1.onrender.com/login', {
+      const response = await fetch('https://api.forvoq.com/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -230,7 +230,7 @@ export const InventoryProvider = ({ children }) => {
       ...companyDetails
     };
     try {
-      const response = await fetch('https://forwokbackend-1.onrender.com/api/users', {
+      const response = await fetch('https://api.forvoq.com/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newUser),
@@ -268,7 +268,7 @@ export const InventoryProvider = ({ children }) => {
 
   const updateProduct = async (id, updatedProduct) => {
     try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/products/${id}`, {
+      const response = await fetch(`https://api.forvoq.com/api/products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...updatedProduct, id }),
@@ -291,7 +291,7 @@ export const InventoryProvider = ({ children }) => {
        return;
     }
     try {
-    const response = await fetch(`https://forwokbackend-1.onrender.com/api/products/${id}`, { method: 'DELETE' });
+    const response = await fetch(`https://api.forvoq.com/api/products/${id}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('Failed to delete product');
       setProducts(prev => prev.filter(p => p.id !== id));
       setInventory(prev => prev.filter(i => i.productId !== id));
@@ -339,7 +339,7 @@ export const InventoryProvider = ({ children }) => {
 
    const updateInventoryItem = async (id, updatedItem) => {
      try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${id}`, {
+      const response = await fetch(`https://api.forvoq.com/api/inventory/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...updatedItem, id }),
@@ -361,7 +361,7 @@ export const InventoryProvider = ({ children }) => {
         return;
      }
      try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/inventory/${id}`, { method: 'DELETE' });
+      const response = await fetch(`https://api.forvoq.com/api/inventory/${id}`, { method: 'DELETE' });
        if (!response.ok) throw new Error('Failed to delete inventory item');
        setInventory(prev => prev.filter(i => i.id !== id));
        toast({ title: "Inventory Item Deleted", description: `${products.find(p => p.id === item.productId)?.name || 'Item'} inventory record removed.`, variant: "destructive" });
@@ -478,7 +478,7 @@ export const InventoryProvider = ({ children }) => {
       if (payload.packingFee !== undefined) payload.packingFee = Number(payload.packingFee);
       if (payload.boxCutting !== undefined) payload.boxCutting = Boolean(payload.boxCutting);
 
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/orders/${orderId}`, {
+      const response = await fetch(`https://api.forvoq.com/api/orders/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -493,7 +493,7 @@ export const InventoryProvider = ({ children }) => {
       // Ensure we fetch a fresh authoritative copy from server to verify persistence.
       // The server exposes a debug GET at /api/orders-debug/:id (there is no GET /api/orders/:id).
       try {
-        const debugResp = await fetch(`https://forwokbackend-1.onrender.com/api/orders-debug/${orderId}`);
+        const debugResp = await fetch(`https://api.forvoq.com/api/orders-debug/${orderId}`);
         if (debugResp.ok) {
           const debugJson = await debugResp.json();
           const freshOrder = debugJson && (debugJson.order || debugJson);
@@ -526,7 +526,7 @@ export const InventoryProvider = ({ children }) => {
     try {
       const headers = {};
       if (currentUser?.token) headers['Authorization'] = `Bearer ${currentUser.token}`;
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/orders/${orderId}`, { method: 'DELETE', headers });
+      const response = await fetch(`https://api.forvoq.com/api/orders/${orderId}`, { method: 'DELETE', headers });
       if (response.status === 401) {
         toast({ title: 'Unauthorized', description: 'Please login to perform this action.', variant: 'destructive' });
         return;
@@ -698,7 +698,7 @@ export const InventoryProvider = ({ children }) => {
        fee: fee
      };
      try {
-      const response = await fetch('https://forwokbackend-1.onrender.com/api/inbounds', {
+      const response = await fetch('https://api.forvoq.com/api/inbounds', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify(newInbound),
@@ -726,7 +726,7 @@ export const InventoryProvider = ({ children }) => {
      const updatedInbound = { ...inbound, status: 'completed', receivedDate: new Date().toISOString().split('T')[0] };
 
      try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/inbounds/${inboundId}`, {
+      const response = await fetch(`https://api.forvoq.com/api/inbounds/${inboundId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedInbound),
@@ -806,7 +806,7 @@ export const InventoryProvider = ({ children }) => {
         ...adminDetails
       };
       try {
-      const response = await fetch('https://forwokbackend-1.onrender.com/api/users', {
+      const response = await fetch('https://api.forvoq.com/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newAdmin),
@@ -839,7 +839,7 @@ export const InventoryProvider = ({ children }) => {
       }
 
       try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/users/${userId}`, { method: 'DELETE' });
+      const response = await fetch(`https://api.forvoq.com/api/users/${userId}`, { method: 'DELETE' });
         if (!response.ok) {
           toast({ title: "User Removal Failed", description: "Failed to remove user from server.", variant: "destructive" });
           return;
@@ -865,7 +865,7 @@ export const InventoryProvider = ({ children }) => {
   const addPickupLocation = async (location) => {
     const newLocation = { id: `loc-${Date.now()}`, ...location };
     try {
-      const response = await fetch('https://forwokbackend-1.onrender.com/api/savedPickupLocations', {
+      const response = await fetch('https://api.forvoq.com/api/savedPickupLocations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newLocation),
@@ -880,7 +880,7 @@ export const InventoryProvider = ({ children }) => {
 
   const updatePickupLocation = async (id, updatedLocation) => {
     try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/savedPickupLocations/${id}`, {
+      const response = await fetch(`https://api.forvoq.com/api/savedPickupLocations/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedLocation),
@@ -895,7 +895,7 @@ export const InventoryProvider = ({ children }) => {
 
   const deletePickupLocation = async (id) => {
     try {
-      const response = await fetch(`https://forwokbackend-1.onrender.com/api/savedPickupLocations/${id}`, {
+      const response = await fetch(`https://api.forvoq.com/api/savedPickupLocations/${id}`, {
         method: 'DELETE',
       });
       if (!response.ok) throw new Error('Failed to delete pickup location');

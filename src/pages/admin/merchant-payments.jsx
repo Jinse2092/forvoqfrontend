@@ -18,12 +18,12 @@ const MerchantPaymentsPage = () => {
 
   useEffect(() => {
     if (!merchantId) return;
-    fetch('https://forwokbackend-1.onrender.com/api/orders')
+    fetch('https://api.forvoq.com/api/orders')
       .then(res => res.json())
       .then(data => setOrders(Array.isArray(data) ? data.filter(o => o.merchantId === merchantId) : []))
       .catch(() => setOrders([]));
 
-    fetch(`https://forwokbackend-1.onrender.com/api/received-payments?merchantId=${merchantId}`)
+    fetch(`https://api.forvoq.com/api/received-payments?merchantId=${merchantId}`)
       .then(res => res.json())
       .then(data => setReceivedPayments(Array.isArray(data) ? data : []))
       .catch(() => setReceivedPayments([]));
@@ -35,7 +35,7 @@ const MerchantPaymentsPage = () => {
     const ids = visibleOrders.map(o => o.id).filter(Boolean);
     if (ids.length === 0) { setPackingFeesMap({}); return; }
     const q = ids.join(',');
-    fetch(`https://forwokbackend-1.onrender.com/api/packingfees?orderIds=${encodeURIComponent(q)}`)
+    fetch(`https://api.forvoq.com/api/packingfees?orderIds=${encodeURIComponent(q)}`)
       .then(res => res.json())
       .then(data => {
         if (data && data.map) setPackingFeesMap(data.map || {});
