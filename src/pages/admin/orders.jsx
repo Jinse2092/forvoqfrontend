@@ -2245,8 +2245,17 @@ const openMarkItemsDialog = (order) => {
                 </div>
 
                 <div>
+                  <div className="text-xs text-gray-500">Source</div>
+                  <div className="text-gray-800">{orderDetails?.source || <span className="italic text-gray-400">—</span>}</div>
+                </div>
+
+                <div>
                   <div className="text-xs text-gray-500">Weight (kg)</div>
                   <div className="text-gray-800">{(() => { const w = computeWeight(orderDetails); return w !== null ? Number(w).toFixed(3) : 'N/A'; })()}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Packed Weight</div>
+                  <div className="text-gray-800">{(orderDetails && orderDetails.packedweight !== undefined && orderDetails.packedweight !== null) ? Number(orderDetails.packedweight).toFixed(3) : <span className="italic text-gray-400">—</span>}</div>
                 </div>
               </div>
             </div>

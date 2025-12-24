@@ -564,6 +564,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         deliveryPartner: newDeliveryPartner,
         items: itemsWithWeights,
         totalWeightKg: parseFloat(totalWeightKg.toFixed(3)),
+        source: 'manual',
         status: 'pending',
         date: new Date().toISOString().split('T')[0],
       };
@@ -1712,6 +1713,10 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                 <div className="text-gray-700">{selectedOrderForModal.deliveryPartner || '—'}</div>
               </div>
               <div>
+                <div className="font-medium">Source</div>
+                <div className="text-gray-700">{selectedOrderForModal.source || '—'}</div>
+              </div>
+              <div>
                 <div className="font-medium">Weight (kg)</div>
                 <div className="text-gray-700">{(() => {
                   const w = (selectedOrderForModal.totalWeightKg !== undefined && selectedOrderForModal.totalWeightKg !== null)
@@ -1719,6 +1724,10 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                     : (selectedOrderForModal.items || []).reduce((s, it) => s + (it.weightKg ?? ((products.find(p => p.id === it.productId)?.weightKg || 0) * (it.quantity || 0))), 0);
                   return (typeof w === 'number' && !isNaN(w)) ? w.toFixed(3) : '—';
                 })()}</div>
+              </div>
+              <div>
+                <div className="font-medium">Packed Weight</div>
+                <div className="text-gray-700">{(selectedOrderForModal.packedweight !== undefined && selectedOrderForModal.packedweight !== null) ? Number(selectedOrderForModal.packedweight).toFixed(3) : '—'}</div>
               </div>
               <div>
                 <div className="font-medium">Packing Fee</div>
