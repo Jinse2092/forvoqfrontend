@@ -24,46 +24,64 @@ const Settings = () => {
 <html lang="en"><head><meta charset="utf-8"><title>Packing Slip – {{ order.name }}</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:Arial,Helvetica,sans-serif}</style></head><body><div><h2>{{ shop.name }}</h2><p>Order {{ order.name }}</p><p>{{ order.created_at }}</p><div><strong>Ship To</strong><p>{{ shipping_address.name }}<br>{{ shipping_address.address1 }}<br>{{ shipping_address.city_province_zip }}<br>{{ shipping_address.country }}<br>{{ shipping_address.phone }}</p></div>{% for li in items %}<div>{{ li.title }} × {{ li.quantity }}</div>{% endfor %}</div></body></html>`;
 
   const [labelTemplate, setLabelTemplate] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
-    // Try loading from server (MongoDB) first, then fallback to localStorage
+    // Load template from server only (no localStorage fallback)
     (async () => {
       try {
         const id = merchantQueryId || (currentUser && currentUser.id);
-        if (id) {
-          const res = await fetch(`https://api.forvoq.com/api/merchants/${id}/shipping-template`);
-          if (res.ok) {
-            const body = await res.json();
-            if (isMounted) setLabelTemplate(body.template || '');
-            return;
-          }
+        if (!id) {
+          if (isMounted) setLabelTemplate('');
+          return;
+        }
+
+        const res = await fetch(`https://api.forvoq.com/api/merchants/${id}/shipping-template`);
+        if (res.ok) {
+          const body = await res.json();
+          if (isMounted) setLabelTemplate(body.template || '');
+        } else {
+          console.error('Failed to load template from server, status', res.status);
+          if (isMounted) setLabelTemplate('');
         }
       } catch (e) {
-        // ignore and fallback
+        console.error('Failed to load template from server', e);
+        if (isMounted) setLabelTemplate('');
       }
-      try { if (isMounted) setLabelTemplate(localStorage.getItem(activeTemplateKey) || ''); } catch (e) { if (isMounted) setLabelTemplate(''); }
     })();
     return () => { isMounted = false; };
   }, [activeTemplateKey]);
 
-  const saveLabelTemplate = () => {
-    (async () => {
-      try {
-        const id = merchantQueryId || (currentUser && currentUser.id);
-        if (id) {
-          const res = await fetch(`https://api.forvoq.com/api/merchants/${id}/shipping-template`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ template: labelTemplate })
-          });
-          if (res.ok) {
-            toast({ title: 'Template Saved', description: merchantQueryId ? `Shipping label template saved for merchant ${merchantQueryId}.` : 'Shipping label template saved for your account.' });
-            return;
-          }
-        }
-      } catch (e) { console.warn('Server save failed', e); }
-      // fallback to localStorage
-      try { localStorage.setItem(activeTemplateKey, labelTemplate); toast({ title: 'Template Saved', description: 'Saved to localStorage (fallback).' }); } catch (e) { console.error('Failed to save template', e); toast({ title: 'Save Failed', description: 'Could not save template.' , variant: 'destructive'}); }
-    })();
+  const saveLabelTemplate = async () => {
+    setSavingTemplate(true);
+    try {
+      const id = merchantQueryId || (currentUser && currentUser.id);
+      if (!id) {
+        toast({ title: 'Save Failed', description: 'No merchant ID available for saving.', variant: 'destructive' });
+        return;
+      }
+
+      const res = await fetch(`https://api.forvoq.com/api/merchants/${id}/shipping-template`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template: labelTemplate })
+      });
+
+      if (res.ok) {
+        toast({ title: 'Template Saved', description: merchantQueryId ? `Shipping label template saved for merchant ${merchantQueryId}.` : 'Shipping label template saved for your account.' });
+      } else {
+        let errText = 'Server returned an error when saving template.';
+        try { errText = await res.text(); } catch (e) {}
+        console.error('Save failed', res.status, errText);
+        toast({ title: 'Save Failed', description: errText || 'Could not save template to server.', variant: 'destructive' });
+      }
+    } catch (e) {
+      console.error('Server save failed', e);
+      toast({ title: 'Save Failed', description: 'Network or server error while saving template.', variant: 'destructive' });
+    } finally {
+      setSavingTemplate(false);
+    }
   };
 
   const renderTemplate = (tpl, data) => {
@@ -415,17 +433,7 @@ const Settings = () => {
         </CardContent>
       </Card>
 
-      {currentUser && currentUser.role === 'superadmin' ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Admin Backups</CardTitle>
-            <CardDescription>Super admin: create backups and restore data (Google Drive upload supported).</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <BackupRestore currentUser={currentUser} />
-          </CardContent>
-        </Card>
-      ) : null}
+      {/* Admin-only backups moved to separate admin settings page */}
 
        <Card>
         <CardHeader>
@@ -477,7 +485,8 @@ const Settings = () => {
           <div className="flex gap-2">
             <Button onClick={() => handlePreviewSample(false)}>Preview</Button>
             <Button onClick={() => handlePreviewSample(true)}>Preview & Print</Button>
-            <Button variant="outline" onClick={saveLabelTemplate}>Save Template</Button>
+            <Button onClick={() => setLabelTemplate(sampleTemplate)}>Use Sample Template</Button>
+            <Button variant="outline" onClick={saveLabelTemplate} disabled={savingTemplate}>{savingTemplate ? 'Saving...' : 'Save Template'}</Button>
           </div>
         </CardContent>
       </Card>

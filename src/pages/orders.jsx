@@ -183,20 +183,49 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
 
-  // Function to download shipping label PDF from base64 string
+  // Function to download shipping label PDF from base64 string (uses Blob for reliability)
   const downloadShippingLabel = (base64String, orderId) => {
     if (!base64String) {
-      alert('No shipping label available for this order.');
+      try { toast({ title: 'No Shipping Label', description: 'No shipping label available for this order.' }); } catch (e) {}
       return;
     }
-    // Remove the data URL prefix if present
-    const base64Data = base64String.split(',')[1] || base64String;
-    const link = document.createElement('a');
-    link.href = `data:application/pdf;base64,${base64Data}`;
-    link.download = `shipping_label_${orderId}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+
+    try {
+      // Support both plain base64 and data URL formats
+      let b64 = String(base64String || '');
+      let mime = 'application/pdf';
+      const m = b64.match(/^data:([^;]+);base64,(.*)$/);
+      if (m) {
+        mime = m[1] || mime;
+        b64 = m[2] || '';
+      }
+
+      // Decode base64 to binary
+      const byteStr = atob(b64);
+      const len = byteStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) bytes[i] = byteStr.charCodeAt(i);
+
+      const blob = new Blob([bytes], { type: mime });
+
+      // IE/Edge fallback
+      if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+        window.navigator.msSaveOrOpenBlob(blob, `shipping_label_${orderId}.pdf`);
+        return;
+      }
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `shipping_label_${orderId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      console.error('Failed to download shipping label', err);
+      try { toast({ title: 'Download Failed', description: 'Could not download shipping label.', variant: 'destructive' }); } catch (e) {}
+    }
   };
 
   // States for Add Order dialog
@@ -824,7 +853,23 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         return;
       }
 
-      const template = localStorage.getItem(templateStorageKey);
+      // Load template from backend (merchant-specific). Previously this used localStorage.
+      let template = null;
+      try {
+        const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
+        const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
+          ? import.meta.env.VITE_API_BASE
+          : (isLocalDev ? 'https://api.forvoq.com' : 'https://api.forvoq.com');
+        if (currentUser && currentUser.id) {
+          const tplRes = await fetch(`${apiBase}/api/merchants/${encodeURIComponent(currentUser.id)}/shipping-template`, { cache: 'no-store' });
+          if (tplRes && tplRes.ok) {
+            const tplJson = await tplRes.json();
+            template = (tplJson && (tplJson.template || tplJson.templateString)) || (typeof tplJson === 'string' ? tplJson : null);
+          }
+        }
+      } catch (e) {
+        // ignore fetch errors — we'll fall back to not-found handling
+      }
       if (!template) {
         toast({ title: 'Template Not Found', description: 'Please configure a shipping label template in Settings first.', variant: 'destructive' });
         return;
@@ -1870,6 +1915,12 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                 <Button className="w-full sm:w-auto" variant="outline" onClick={() => { setIsOrderDialogOpen(false); openEditDialog(selectedOrderForModal); setSelectedOrderForModal(null); }}>Edit</Button>
                 <Button className="w-full sm:w-auto" variant="destructive" onClick={() => { if (!confirm('Delete this order?')) return; removeOrder(selectedOrderForModal.id); setIsOrderDialogOpen(false); setSelectedOrderForModal(null); }}>Delete</Button>
               </>
+            )}
+            {(selectedOrderForModal && (selectedOrderForModal.shippingLabelBase64 || selectedOrderForModal.shippingLabel || selectedOrderForModal.shippingLabelData || selectedOrderForModal.shipping_label || selectedOrderForModal.shipping_label_base64)) && (
+              <Button className="w-full sm:w-auto" onClick={() => {
+                const b64 = selectedOrderForModal.shippingLabelBase64 || selectedOrderForModal.shippingLabel || selectedOrderForModal.shippingLabelData || selectedOrderForModal.shipping_label || selectedOrderForModal.shipping_label_base64;
+                downloadShippingLabel(b64, selectedOrderForModal.id || 'unknown');
+              }}>Download Label</Button>
             )}
             <Button className="w-full sm:w-auto" variant="outline" onClick={() => { setIsOrderDialogOpen(false); setSelectedOrderForModal(null); }}>Close</Button>
           </div>

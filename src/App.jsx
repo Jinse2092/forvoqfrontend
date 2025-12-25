@@ -22,6 +22,7 @@ import AdminManagement from './pages/admin/management.jsx';
 import AdminPayments from './pages/admin/payments.jsx';
 import AdminMerchantPayments from './pages/admin/merchant-payments.jsx';
 import AdminReturns from './pages/admin/returns.jsx';
+import AdminSettings from './pages/admin/settings.jsx';
 import { InventoryProvider, useInventory } from './context/inventory-context.jsx';
 
 // Simulated Auth Guard
@@ -73,6 +74,7 @@ function App() {
                       <Route path="/admin/merchant-payments/:id" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminMerchantPayments /></ProtectedRoute>} />
                       <Route path="/admin/returns" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminReturns /></ProtectedRoute>} />
                       <Route path="/admin/management" element={<ProtectedRoute allowedRoles={['superadmin']}><AdminManagement /></ProtectedRoute>} />
+                      <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={['superadmin']}><AdminSettings /></ProtectedRoute>} />
 
                       {/* Catch-all for logged-in users */}
                       <Route path="*" element={<Navigate to="/" replace />} />

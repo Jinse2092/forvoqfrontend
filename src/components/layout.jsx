@@ -40,6 +40,7 @@ const adminSidebarItems = [
 
 const superAdminSidebarItems = [
   ...adminSidebarItems,
+  { icon: UserCog, label: 'Admin Settings', path: '/admin/settings' },
   { icon: UserCog, label: 'Admin Mgmt', path: '/admin/management' },
 ];
 

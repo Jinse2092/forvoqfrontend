@@ -85,6 +85,8 @@ const Products = () => {
       inboundPrice: formData.inboundPrice === '' ? 0 : parseFloat(formData.inboundPrice),
       outboundPrice: formData.outboundPrice === '' ? 0 : parseFloat(formData.outboundPrice),
     };
+    // Backwards-compatibility: keep single `sku` field for consumers expecting `product.sku`
+    productData.sku = (productData.skus && productData.skus.length > 0) ? productData.skus[0] : '';
     if (currentProduct) {
       updateProduct(currentProduct.id, productData);
     } else {
