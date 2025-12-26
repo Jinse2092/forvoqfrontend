@@ -6,8 +6,14 @@ export default defineConfig({
   plugins: [react()],
   server: {
     cors: true,
-    // Removed Cross-Origin-Embedder-Policy header to test if it causes loading issues
-    // Temporarily removed allowedHosts and proxy to isolate issue
+    // Proxy /api to backend during development
+    proxy: {
+      '/api': {
+        target: 'https://api.forvoq.com',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
   resolve: {
     alias: {

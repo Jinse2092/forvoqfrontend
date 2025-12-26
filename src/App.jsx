@@ -23,6 +23,7 @@ import AdminPayments from './pages/admin/payments.jsx';
 import AdminMerchantPayments from './pages/admin/merchant-payments.jsx';
 import AdminReturns from './pages/admin/returns.jsx';
 import AdminSettings from './pages/admin/settings.jsx';
+import Webhooks from './pages/admin/webhooks.jsx';
 import { InventoryProvider, useInventory } from './context/inventory-context.jsx';
 
 // Simulated Auth Guard
@@ -63,6 +64,7 @@ function App() {
                       <Route path="/inbound" element={<Inbound />} />
                       <Route path="/payments" element={<Payments />} />
                       <Route path="/reports" element={<Reports />} />
+                      <Route path="/admin/webhooks" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><Webhooks /></ProtectedRoute>} />
                       <Route path="/settings" element={<Settings />} />
 
                       {/* Admin Routes */}

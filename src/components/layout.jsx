@@ -34,6 +34,7 @@ const adminSidebarItems = [
   { icon: Warehouse, label: 'All Inventory', path: '/inventory' },
   { icon: DollarSign, label: 'All Payments', path: '/admin/payments' },
   { icon: BarChart3, label: 'All Reports', path: '/reports' },
+  { icon: ShieldCheck, label: 'Webhooks', path: '/admin/webhooks' },
   { icon: BookMarked, label: 'Returns', path: '/admin/returns' },
   { icon: Settings, label: 'Settings', path: '/settings' },
 ];
