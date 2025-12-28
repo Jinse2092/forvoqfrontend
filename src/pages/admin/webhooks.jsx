@@ -58,7 +58,7 @@ const Webhooks = () => {
       } catch (e) {
         // ignore and try fallback
       }
-      const base = 'http://localhost:4000';
+      const base = 'https://api.forvoq.com';
       return await fetch(base + path, opts);
     } catch (err) {
       throw err;

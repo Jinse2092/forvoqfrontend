@@ -406,7 +406,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
         const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
           ? import.meta.env.VITE_API_BASE
-          : (isLocalDev ? 'http://localhost:4000' : 'http://localhost:4000');
+          : (isLocalDev ? 'https://api.forvoq.com' : 'https://api.forvoq.com');
         const url = `${apiBase}/api/packingfees?orderIds=${encodeURIComponent(q)}`;
         console.log('Merchant: fetching packing fees batch from', url);
         const res = await fetch(url, { cache: 'no-store' });
@@ -738,7 +738,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
         const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
           ? import.meta.env.VITE_API_BASE
-          : (isLocalDev ? 'http://localhost:4000' : 'http://localhost:4000');
+          : (isLocalDev ? 'https://api.forvoq.com' : 'https://api.forvoq.com');
         const singleUrl = `${apiBase}/api/packingfees/${encodeURIComponent(order.id)}`;
         console.log('Merchant: fetching packing fee for order', order.id, 'from', singleUrl);
         const res = await fetch(singleUrl, { cache: 'no-store' });
@@ -859,7 +859,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
         const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
           ? import.meta.env.VITE_API_BASE
-          : (isLocalDev ? 'http://localhost:4000' : 'http://localhost:4000');
+          : (isLocalDev ? 'https://api.forvoq.com' : 'https://api.forvoq.com');
         if (currentUser && currentUser.id) {
           const tplRes = await fetch(`${apiBase}/api/merchants/${encodeURIComponent(currentUser.id)}/shipping-template`, { cache: 'no-store' });
           if (tplRes && tplRes.ok) {
