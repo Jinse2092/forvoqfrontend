@@ -37,7 +37,7 @@ const Settings = () => {
           return;
         }
 
-        const res = await fetch(`https://api.forvoq.com/api/merchants/${id}/shipping-template`);
+        const res = await fetch(`http://localhost:4000/api/merchants/${id}/shipping-template`);
         if (res.ok) {
           const body = await res.json();
           if (isMounted) setLabelTemplate(body.template || '');
@@ -62,7 +62,7 @@ const Settings = () => {
         return;
       }
 
-      const res = await fetch(`https://api.forvoq.com/api/merchants/${id}/shipping-template`, {
+      const res = await fetch(`http://localhost:4000/api/merchants/${id}/shipping-template`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template: labelTemplate })
@@ -254,7 +254,7 @@ const Settings = () => {
       if (!window.confirm('Clearing data will remove only your merchant data from this browser. An OTP will be sent to your registered email. Proceed?')) return;
       setOtpInProgress(true);
       // Request OTP from backend
-      fetch('https://api.forvoq.com/api/forgot-password/request-otp', {
+      fetch('http://localhost:4000/api/forgot-password/request-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ merchantId: currentUser.id, email: currentUser.email }),
@@ -271,7 +271,7 @@ const Settings = () => {
               return;
             }
             // Verify OTP
-            fetch('https://api.forvoq.com/api/forgot-password/verify-otp', {
+            fetch('http://localhost:4000/api/forgot-password/verify-otp', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ userId, otp }),

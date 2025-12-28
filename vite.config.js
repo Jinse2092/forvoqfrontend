@@ -9,7 +9,7 @@ export default defineConfig({
     // Proxy /api to backend during development
     proxy: {
       '/api': {
-        target: 'https://api.forvoq.com',
+        target: 'http://localhost:4000',
         changeOrigin: true,
         secure: false,
       },

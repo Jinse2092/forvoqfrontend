@@ -44,7 +44,7 @@ const Register = () => {
     setLoading(true);
     try {
       // Check if email is already in use before sending OTP
-      const checkRes = await fetch('https://api.forvoq.com/api/users');
+      const checkRes = await fetch('http://localhost:4000/api/users');
       const users = await checkRes.json();
       if (users.some(u => u.email === formData.email)) {
         setError('This email is already registered. Please use a different email or login.');
@@ -52,7 +52,7 @@ const Register = () => {
         setLoading(false);
         return;
       }
-      const response = await fetch('https://api.forvoq.com/api/register/request-otp', {
+      const response = await fetch('http://localhost:4000/api/register/request-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: formData.email }),
@@ -87,7 +87,7 @@ const Register = () => {
     }
     setLoading(true);
     try {
-      const response = await fetch('https://api.forvoq.com/api/register/verify-otp', {
+      const response = await fetch('http://localhost:4000/api/register/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: formData.email, otp }),

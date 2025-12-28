@@ -58,7 +58,7 @@ const Webhooks = () => {
       } catch (e) {
         // ignore and try fallback
       }
-      const base = 'https://api.forvoq.com';
+      const base = 'http://localhost:4000';
       return await fetch(base + path, opts);
     } catch (err) {
       throw err;
@@ -224,8 +224,9 @@ const Webhooks = () => {
                       <Input value={shopifyDomain} onChange={(e) => setShopifyDomain(e.target.value)} placeholder="your-shop.myshopify.com" />
                     </div>
                     <div>
-                      <Label>Webhook Signature</Label>
-                      <Input value={signature} onChange={(e) => setSignature(e.target.value)} placeholder="signature" />
+                      <Label>Shopify API Token</Label>
+                      <Input value={signature} onChange={(e) => setSignature(e.target.value)} placeholder="shopify-api-token" />
+                      <p className="text-xs text-muted-foreground mt-1">This is the merchant's Shopify API token (used to verify/identify the shop).</p>
                     </div>
                     <div>
                       <Label>Merchant</Label>

@@ -34,16 +34,16 @@ const PaymentsPanel = () => {
 
   useEffect(() => {
     if (currentUser?.role === 'merchant' && currentUser?.id) {
-      fetch(`https://api.forvoq.com/api/received-payments?merchantId=${currentUser.id}`)
+      fetch(`http://localhost:4000/api/received-payments?merchantId=${currentUser.id}`)
         .then(res => res.json())
         .then(data => setReceivedPayments(data));
     } else if (currentUser?.role === 'admin') {
-      fetch('https://api.forvoq.com/api/received-payments')
+      fetch('http://localhost:4000/api/received-payments')
         .then(res => res.json())
         .then(data => setReceivedPayments(data.sort((a, b) => new Date(b.date) - new Date(a.date))));
     }
     // Fetch orders so we can show order details for dispatch_fee rows
-    fetch('https://api.forvoq.com/api/orders')
+    fetch('http://localhost:4000/api/orders')
       .then(res => res.json())
       .then(data => setOrders(data || []))
       .catch(() => setOrders([]));
@@ -314,7 +314,7 @@ const PaymentsPanel = () => {
       return;
     }
     Promise.all(ids.map(id =>
-      fetch(`https://api.forvoq.com/api/packingfees/${id}`)
+      fetch(`http://localhost:4000/api/packingfees/${id}`)
         .then(res => res.ok ? res.json() : null)
         .then(data => ({ id, data }))
         .catch(() => ({ id, data: null }))

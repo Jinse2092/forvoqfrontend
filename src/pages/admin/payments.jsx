@@ -43,7 +43,7 @@ const AdminPayments = () => {
 
   // Fetch received payments from backend on mount
   useEffect(() => {
-    fetch('https://api.forvoq.com/api/received-payments')
+    fetch('http://localhost:4000/api/received-payments')
       .then(res => res.json())
       .then(data => setReceivedPayments(data))
       .catch(err => console.error('Error fetching received payments:', err));
@@ -85,7 +85,7 @@ const AdminPayments = () => {
       type: 'received_payment'
     };
 
-    fetch('https://api.forvoq.com/api/received-payments', {
+    fetch('http://localhost:4000/api/received-payments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newReceivedPayment),
