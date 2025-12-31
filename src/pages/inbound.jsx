@@ -20,7 +20,7 @@ const Inbound = () => {
   const [newDeliveryLocation, setNewDeliveryLocation] = useState({ buildingNumber: '', location: '', pincode: '', phone: '' });
 
   const [inboundDetails, setInboundDetails] = useState({
-    items: [{ productId: '', productQuery: '', quantity: 0 }],
+    items: [{ productId: '', productQuery: '', quantity: 0, expiryDate: '' }],
     pickupLocation: '', // was null
     deliveryLocation: '', // was null
     type: 'inbound',
@@ -32,6 +32,9 @@ const Inbound = () => {
       const newItems = [...prev.items];
       if (name === 'quantity') {
         newItems[index][name] = parseInt(value) || 0;
+      }
+      if (name === 'expiryDate') {
+        newItems[index].expiryDate = value;
       }
       if (name === 'productQuery') {
         newItems[index].productQuery = value;
@@ -126,7 +129,7 @@ const Inbound = () => {
     addInboundRequest(newInbound);
     toast({ title: 'Inventory Request Added', description: `${inboundDetails.type === 'inbound' ? 'Pickup' : 'Delivery'} scheduled.` });
     setIsDialogOpen(false);
-    setInboundDetails({ items: [{ productId: '', productQuery: '', quantity: 0 }], pickupLocation: '', deliveryLocation: '', type: 'inbound' });
+    setInboundDetails({ items: [{ productId: '', productQuery: '', quantity: 0, expiryDate: '' }], pickupLocation: '', deliveryLocation: '', type: 'inbound' });
   };
 
   return (
@@ -192,6 +195,14 @@ const Inbound = () => {
                         className="w-28 min-w-[80px]"
                         enterKeyHint="next"
                         required
+                      />
+                      <Input
+                        name="expiryDate"
+                        type="date"
+                        value={item.expiryDate || ''}
+                        onChange={(e) => handleInputChange(e, index)}
+                        placeholder="Expiry date (optional)"
+                        className="w-40"
                       />
                       <div className="flex items-center space-x-2">
                         <Button type="button" variant="outline" onClick={() => removeItem(index)} className="h-9 px-3">Remove</Button>

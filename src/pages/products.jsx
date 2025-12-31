@@ -24,6 +24,7 @@ const Products = () => {
   const [formData, setFormData] = useState({
     name: '',
     skus: [''],
+    barcodeId: '',
     category: '',
     price: '',
     cost: '',
@@ -101,6 +102,7 @@ const Products = () => {
       setFormData({
         name: product.name ?? '',
         skus: Array.isArray(product.skus) ? product.skus : [product.sku ?? ''],
+        barcodeId: product.barcodeId ?? '',
         category: product.category ?? '',
         price: product.price !== undefined && product.price !== null ? product.price.toString() : '',
         cost: product.cost !== undefined && product.cost !== null ? product.cost.toString() : '',
@@ -118,7 +120,7 @@ const Products = () => {
         packingPrice: product.packingPrice !== undefined && product.packingPrice !== null ? product.packingPrice.toString() : ''
       });
     } else {
-      setFormData({ name: '', skus: [''], category: '', price: '', cost: '', description: '', imageUrl: '', weightKg: '', transportationFee: '', itemPackingFee: '', warehousingRatePerKg: '', lengthCm: '', breadthCm: '', heightCm: '', inboundPrice: '', outboundPrice: '', packingPrice: '' });
+      setFormData({ name: '', skus: [''], barcodeId: '', category: '', price: '', cost: '', description: '', imageUrl: '', weightKg: '', transportationFee: '', itemPackingFee: '', warehousingRatePerKg: '', lengthCm: '', breadthCm: '', heightCm: '', inboundPrice: '', outboundPrice: '', packingPrice: '' });
     }
     setIsModalOpen(true);
   };
@@ -258,6 +260,10 @@ const Products = () => {
                   <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4 w-full">
                     <Label htmlFor="category" className="text-right sm:text-left">Category</Label>
                     <Input id="category" name="category" value={formData.category} onChange={handleInputChange} className="col-span-3 sm:col-span-1 w-full" />
+                  </div>
+                  <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4 w-full">
+                    <Label htmlFor="barcodeId" className="text-right sm:text-left">Barcode ID</Label>
+                    <Input id="barcodeId" name="barcodeId" value={formData.barcodeId} onChange={handleInputChange} className="col-span-3 sm:col-span-1 w-full" placeholder="Optional barcode or UPC" />
                   </div>
                   <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4 w-full">
                     <Label htmlFor="price" className="text-right sm:text-left">Price (₹)</Label>

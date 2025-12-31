@@ -27,6 +27,7 @@ const InventoryList = ({ inventory, openEditModal, openAdjustModal, getProductNa
             {isAdminView && <TableHead>Merchant ID</TableHead>}
             {isAdminView && <TableHead>Merchant Name</TableHead>}
             <TableHead>Product</TableHead>
+            <TableHead>Expiry</TableHead>
             <TableHead>Location</TableHead>
             <TableHead className="text-right">Quantity</TableHead>
             <TableHead className="text-right">Min Stock</TableHead>
@@ -45,14 +46,36 @@ const InventoryList = ({ inventory, openEditModal, openAdjustModal, getProductNa
 
               const isLowStock = min > 0 && qty <= min;
               const isOverStock = max > 0 && qty > max;
+              // Determine expiry status
+              const expiryDateStr = item.expiryDate || null;
+              let expiryLabel = '-';
+              let expiryStatus = item.expiryStatus || item.status || 'normal';
+              if (expiryDateStr) {
+                try {
+                  const d = new Date(expiryDateStr);
+                  expiryLabel = isNaN(d.getTime()) ? expiryDateStr : d.toISOString().slice(0,10);
+                } catch (e) {
+                  expiryLabel = expiryDateStr;
+                }
+              }
+
               let statusVariant = 'default';
               let statusText = 'OK';
               if (isLowStock) {
                 statusVariant = 'destructive';
                 statusText = 'Low';
               } else if (isOverStock) {
-                statusVariant = 'warning'; // Use a warning variant
+                statusVariant = 'warning';
                 statusText = 'Over';
+              }
+
+              // Override to show expiry-related status
+              if (expiryStatus === 'expired') {
+                statusVariant = 'destructive';
+                statusText = 'Expired';
+              } else if (expiryStatus === 'about_to_expire') {
+                statusVariant = 'warning';
+                statusText = 'Expiring Soon';
               }
 
 
@@ -68,14 +91,14 @@ const InventoryList = ({ inventory, openEditModal, openAdjustModal, getProductNa
                   {isAdminView && <TableCell className="text-xs text-muted-foreground">{item.merchantId}</TableCell>}
                   {isAdminView && <TableCell className="text-xs text-muted-foreground">{getMerchantName(item.merchantId)}</TableCell>}
                   <TableCell className="font-medium">{getProductName(item.productId)}</TableCell>
+                  <TableCell>{expiryLabel}</TableCell>
                   <TableCell>{item.location}</TableCell>
                   <TableCell className="text-right">{qty}</TableCell>
                   <TableCell className="text-right">{min > 0 ? min : '-'}</TableCell>
                   <TableCell className="text-right">{max > 0 ? max : '-'}</TableCell>
                   <TableCell className="text-center">
                      <Badge variant={statusVariant} className="text-xs">
-                       {isLowStock && <AlertTriangle className="h-3 w-3 mr-1 inline-block" />}
-                       {isOverStock && <AlertTriangle className="h-3 w-3 mr-1 inline-block" />}
+                       {(expiryStatus === 'expired' || expiryStatus === 'about_to_expire') && <AlertTriangle className="h-3 w-3 mr-1 inline-block" />}
                        {statusText}
                      </Badge>
                   </TableCell>

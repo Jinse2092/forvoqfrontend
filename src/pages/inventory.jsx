@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useInventory } from '../context/inventory-context.jsx';
 import { Button } from '../components/ui/button.jsx';
 import { Input } from '../components/ui/input.jsx';
@@ -11,6 +11,7 @@ import AdjustStockForm from '../components/inventory/AdjustStockForm.jsx';
 
 const Inventory = () => {
   const { inventory, products, currentUser, users } = useInventory();
+  const { fetchAllData } = useInventory();
   const [isAddEditModalOpen, setIsAddEditModalOpen] = useState(false);
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
   const [currentItem, setCurrentItem] = useState(null);
@@ -67,6 +68,26 @@ const Inventory = () => {
     const merchantIdMatch = currentUser?.role !== 'merchant' && (item.merchantId?.toLowerCase().includes(searchTermLower) || merchantName.includes(searchTermLower));
     return productNameLower.includes(searchTermLower) || location.includes(searchTermLower) || merchantIdMatch;
   });
+
+  // Poll inventory and related data every 2 seconds while this page is mounted.
+  const pollingRef = useRef(false);
+  useEffect(() => {
+    let mounted = true;
+    const interval = setInterval(async () => {
+      if (!mounted) return;
+      if (pollingRef.current) return; // skip if previous fetch still in progress
+      try {
+        pollingRef.current = true;
+        await fetchAllData?.();
+      } catch (e) {
+        // swallow; UI will show stale data
+        console.warn('Inventory polling error', e && e.message);
+      } finally {
+        pollingRef.current = false;
+      }
+    }, 2000);
+    return () => { mounted = false; clearInterval(interval); };
+  }, [fetchAllData]);
 
   return (
     <div className="p-2 sm:p-6 space-y-6">

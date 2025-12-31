@@ -69,37 +69,46 @@ export const InventoryProvider = ({ children }) => {
       });
       console.log('Orders with city and state:', ordersWithCityState);
 
-      // Compute packedQuantity per inventory item from all non-pending orders
-      const nonPendingOrders = ordersWithCityState.filter(o => o.status && o.status !== 'pending');
+      // Compute packedQuantity per inventory item from all orders whose status is NOT 'pending' or 'return'
+      const nonPendingOrders = ordersWithCityState.filter(o => o.status && o.status !== 'pending' && o.status !== 'return');
       const rawInventory = results[1] || [];
 
+      // Compute packedQuantity per inventory batch using orders' packingDetails when available
       const inventoryWithPacked = rawInventory.map(invItem => {
-        const packedQuantity = nonPendingOrders.reduce((sum, ord) => {
-          if (!Array.isArray(ord.items)) return sum;
-          const matching = ord.items.filter(it => it.productId === invItem.productId && ord.merchantId === invItem.merchantId);
-          const qty = matching.reduce((s, m) => s + (Number(m.quantity) || 0), 0);
-          return sum + qty;
-        }, 0);
+        let packedQuantity = 0;
+        for (const ord of nonPendingOrders) {
+          // use packingDetails if present on the order (server-side allocations)
+          if (Array.isArray(ord.packingDetails) && ord.packingDetails.length > 0) {
+            for (const pd of ord.packingDetails) {
+              for (const alloc of pd.allocations || []) {
+                if (alloc.inventoryId === invItem.id) packedQuantity += Number(alloc.used || 0);
+              }
+            }
+            } else {
+              // fallback: older orders without packingDetails -> sum items by productId/merchantId
+              // but only count items that explicitly match the batch expiry (if provided),
+              // or both have no expiry. This prevents attributing order qty to the wrong expiry batch.
+              if (!Array.isArray(ord.items)) continue;
+              for (const it of ord.items) {
+                if (!it || it.productId !== invItem.productId) continue;
+                if (ord.merchantId !== invItem.merchantId) continue;
+                const itExpiry = it.expiryDate || null;
+                const invExpiry = invItem.expiryDate || null;
+                if (itExpiry !== null && invExpiry !== null) {
+                  if (String(itExpiry) === String(invExpiry)) packedQuantity += Number(it.quantity || 0);
+                } else if (itExpiry === null && invExpiry === null) {
+                  packedQuantity += Number(it.quantity || 0);
+                }
+              }
+            }
+        }
         return { ...invItem, packedQuantity };
       });
 
-      // Persist packedQuantity to backend for any inventory items that differ.
-      // Use PATCH and only send the packedQuantity field so we don't overwrite
-      // the `quantity` (physical stock) accidentally.
-      inventoryWithPacked.forEach(async (inv) => {
-        try {
-          const existingPacked = results[1].find(i => i.id === inv.id)?.packedQuantity || 0;
-          if (Number(existingPacked) !== Number(inv.packedQuantity)) {
-            await fetch(`https://api.forvoq.com/api/inventory/${inv.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ packedQuantity: Number(inv.packedQuantity) || 0 }),
-            });
-          }
-        } catch (err) {
-          console.error('Failed to persist packedQuantity for inventory', inv.id, err);
-        }
-      });
+      // NOTE: Do NOT persist computed packedQuantity to backend. Inventory display
+      // should be derived at read-time (inbound quantity minus matching orders),
+      // not by mutating DB fields. This prevents race conditions and keeps the
+      // source-of-truth as the inbound records and the orders collection.
 
       setProducts(results[0]);
       setInventory(inventoryWithPacked);
@@ -147,15 +156,66 @@ export const InventoryProvider = ({ children }) => {
     const merchant = users.find(u => u.id === invItem.merchantId) || {};
     const inbound = inbounds.find(i => i.merchantId === invItem.merchantId && i.items.some(item => item.productId === invItem.productId)) || {};
     const location = inbound.items ? inbound.items.find(item => item.productId === invItem.productId)?.location : '';
+    // Compute expiry-based status locally so UI updates without waiting for backend status persist
+    let expiryStatus = invItem.status || 'normal';
+    if (invItem.expiryDate) {
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const exp = new Date(invItem.expiryDate);
+      if (!isNaN(exp.getTime())) {
+        const diffMs = exp.setHours(0,0,0,0) - startOfToday.getTime();
+        const diffDays = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
+        if (diffDays <= 3) expiryStatus = 'expired';
+        else if (diffDays <= 10) expiryStatus = 'about_to_expire';
+        else expiryStatus = 'normal';
+      }
+    }
+
+    // Determine how many units of this specific batch (product+merchant+expiry)
+    // have been ordered (status != pending/return). We do this purely from
+    // the orders collection (packingDetails if present, otherwise item-level
+    // expiry matching). This avoids mutating inventory records when orders
+    // are created or deleted.
+    let orderedQty = 0;
+    const relevantOrders = orders.filter(o => o.status && o.status !== 'pending' && o.status !== 'return');
+    for (const ord of relevantOrders) {
+      // If server provided explicit packingDetails, prefer that authoritative mapping
+      if (Array.isArray(ord.packingDetails) && ord.packingDetails.length > 0) {
+        for (const pd of ord.packingDetails) {
+          for (const alloc of pd.allocations || []) {
+            if (alloc && alloc.inventoryId === invItem.id) orderedQty += Number(alloc.used || 0);
+          }
+        }
+      } else {
+        // Fallback: attribute order item quantities to this batch only when
+        // the item expiry matches the batch expiry (or both are null)
+        if (!Array.isArray(ord.items)) continue;
+        for (const it of ord.items) {
+          if (!it) continue;
+          if (it.productId !== invItem.productId) continue;
+          if (ord.merchantId !== invItem.merchantId) continue;
+          const itExpiry = it.expiryDate || null;
+          const invExpiry = invItem.expiryDate || null;
+          if (itExpiry !== null && invExpiry !== null) {
+            if (String(itExpiry) === String(invExpiry)) orderedQty += Number(it.quantity || 0);
+          } else if (itExpiry === null && invExpiry === null) {
+            orderedQty += Number(it.quantity || 0);
+          }
+        }
+      }
+    }
+
+    const available = Math.max(0, Number(invItem.quantity || 0) - orderedQty);
+
     return {
       ...invItem,
       merchantName: merchant.companyName || '',
       productName: product.name || '',
       location: location || invItem.location || '',
-      // displayable quantity = physical quantity minus packedQuantity (if present)
-      quantity: (Number(invItem.quantity || 0) - Number(invItem.packedQuantity || 0)),
+      quantity: available,
       minStock: invItem.minStockLevel || 0,
       maxStock: invItem.maxStockLevel || 0,
+      expiryStatus,
     };
   });
 
@@ -307,9 +367,11 @@ export const InventoryProvider = ({ children }) => {
 
   // --- Inventory CRUD ---
    const addInventoryItem = async (item) => {
-     const existingItem = inventory.find(i => i.productId === item.productId && i.merchantId === item.merchantId);
+     // Treat inventory batches with different expiryDate as distinct records.
+     const expiryKey = item.expiryDate ? String(item.expiryDate) : null;
+     const existingItem = inventory.find(i => i.productId === item.productId && i.merchantId === item.merchantId && (i.expiryDate ? String(i.expiryDate) === expiryKey : !expiryKey));
      if (existingItem) {
-       await updateInventoryItem(existingItem.id, { quantity: existingItem.quantity + item.quantity });
+       await updateInventoryItem(existingItem.id, { quantity: Number(existingItem.quantity || 0) + Number(item.quantity || 0) });
      } else {
        const newItem = { id: `inv-${Date.now()}`, ...item };
        const savedItem = await addDataToBackend('inventory', newItem, setInventory);
@@ -322,9 +384,16 @@ export const InventoryProvider = ({ children }) => {
    };
 
    const removeInventoryItemQuantity = async (item) => {
-     const existingItem = inventory.find(i => i.productId === item.productId && i.merchantId === item.merchantId);
+     // If expiryDate is provided, prefer matching batch; otherwise fallback to any batch
+     let existingItem = null;
+     if (item.expiryDate) {
+       existingItem = inventory.find(i => i.productId === item.productId && i.merchantId === item.merchantId && i.expiryDate === item.expiryDate);
+     }
+     if (!existingItem) {
+       existingItem = inventory.find(i => i.productId === item.productId && i.merchantId === item.merchantId);
+     }
      if (existingItem) {
-       const newQuantity = existingItem.quantity - item.quantity;
+       const newQuantity = Number(existingItem.quantity || 0) - Number(item.quantity || 0);
        if (newQuantity < 0) {
          toast({ title: "Inventory Error", description: `Cannot remove more than available inventory for product.`, variant: "destructive" });
          return false;
@@ -646,9 +715,33 @@ export const InventoryProvider = ({ children }) => {
        toast({ title: "Permission Denied", description: "Only admins can mark orders as packed.", variant: "destructive" });
        return;
     }
-    // Mark as packed and record timestamp
-    await updateOrder(orderId, { status: 'packed', packedAt: new Date().toISOString() });
-    toast({ title: "Order Updated", description: `Order ${orderId} marked as packed.` });
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return;
+
+    // Delegate allocation and decrementing to server to avoid double-decrement bugs.
+    try {
+      const payload = { id: orderId, status: 'packed', packedAt: new Date().toISOString() };
+      const resp = await fetch(`https://api.forvoq.com/api/orders/${orderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (resp.status === 400) {
+        const body = await resp.json().catch(() => ({}));
+        const details = (body && (body.details || body.error)) ? (body.details || body.error) : 'Insufficient expiry-safe stock for packing';
+        toast({ title: 'Out of Stock', description: String(details), variant: 'destructive' });
+        return;
+      }
+      if (!resp.ok) throw new Error('Failed to mark order packed');
+      const saved = await resp.json();
+      setOrders(prev => prev.map(o => o.id === orderId ? saved : o));
+      toast({ title: 'Order Updated', description: `Order ${orderId} marked as packed.` });
+      await fetchAllData();
+      return saved;
+    } catch (err) {
+      console.error('markOrderPacked error', err);
+      toast({ title: 'Error', description: 'Failed to mark order as packed.', variant: 'destructive' });
+    }
   };
 
   // Decrement inventory quantities for multiple packed items.
@@ -744,6 +837,8 @@ export const InventoryProvider = ({ children }) => {
              merchantId: savedInbound.merchantId,
              productId: item.productId,
              quantity: item.quantity,
+             expiryDate: item.expiryDate || null,
+             sourceInboundDate: savedInbound.receivedDate || savedInbound.date || new Date().toISOString().slice(0,10),
              location: 'Default Warehouse',
              minStockLevel: 0,
              maxStockLevel: 0,
