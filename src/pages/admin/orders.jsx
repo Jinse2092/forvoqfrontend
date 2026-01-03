@@ -430,7 +430,7 @@ const AdminOrders = () => {
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
         const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
           ? import.meta.env.VITE_API_BASE
-          : (isLocalDev ? 'https://app.forvoq.com' : 'https://app.forvoq.com');
+          : (isLocalDev ? 'https://api.forvoq.com' : 'https://api.forvoq.com');
         const url = `${apiBase}/api/packingfees?orderIds=${encodeURIComponent(q)}`;
         console.log('Admin: fetching packing fees batch from', url);
         const res = await fetch(url, { cache: 'no-store' });
@@ -551,7 +551,7 @@ const AdminOrders = () => {
     const templateKey = `shipping_label_template_${merchant.id}`;
     let tpl = null;
     try {
-          const res = await fetch(`https://app.forvoq.com/api/merchants/${merchant.id}/shipping-template`);
+          const res = await fetch(`https://api.forvoq.com/api/merchants/${merchant.id}/shipping-template`);
       if (res.ok) {
         const body = await res.json();
         tpl = body && body.template ? body.template : null;
@@ -1305,7 +1305,7 @@ const openMarkItemsDialog = (order) => {
       let tpl = null;
       
       try {
-          const res = await fetch(`https://app.forvoq.com/api/merchants/${merchant.id}/shipping-template`);
+          const res = await fetch(`https://api.forvoq.com/api/merchants/${merchant.id}/shipping-template`);
         if (res.ok) {
           const body = await res.json();
           tpl = body && body.template ? body.template : null;
@@ -1973,7 +1973,7 @@ const openMarkItemsDialog = (order) => {
 
   // Fetch a fresh order document directly from the backend (reads DB)
   const fetchOrderFromServer = async (orderId) => {
-    const base = 'https://app.forvoq.com';
+    const base = 'https://api.forvoq.com';
     const candidates = [
       `${base}/api/orders-debug/${orderId}`,
       `${base}/api/orders/${orderId}`,
@@ -2055,7 +2055,7 @@ const openMarkItemsDialog = (order) => {
       const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
       const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
         ? import.meta.env.VITE_API_BASE
-        : (isLocalDev ? 'https://app.forvoq.com' : 'https://app.forvoq.com');
+        : (isLocalDev ? 'https://api.forvoq.com' : 'https://api.forvoq.com');
       const singleUrl = `${apiBase}/api/packingfees/${encodeURIComponent(orderId)}`;
       console.log('Admin: fetching packing fee for order', orderId, 'from', singleUrl);
       const res = await fetch(singleUrl, { cache: 'no-store' });
@@ -2092,7 +2092,7 @@ const openMarkItemsDialog = (order) => {
   // Function to save the tracking code to the database
   const saveTrackingCode = async (orderId, trackingCode) => {
     try {
-      const response = await fetch(`https://app.forvoq.com/api/orders/${orderId}/tracking-code`, {
+      const response = await fetch(`https://api.forvoq.com/api/orders/${orderId}/tracking-code`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -2129,7 +2129,7 @@ const openMarkItemsDialog = (order) => {
         }
         anySent = true;
         console.log(`Saving tracking code for ${id}:`, code);
-        const res = await fetch(`https://app.forvoq.com/api/orders/${id}/tracking-code`, {
+        const res = await fetch(`https://api.forvoq.com/api/orders/${id}/tracking-code`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ trackingCode: code }),
@@ -2201,21 +2201,21 @@ const openMarkItemsDialog = (order) => {
             if (orderDetails && orderDetails.id === id && saved) setOrderDetails(saved);
           } catch (err) {
             console.error('Failed updateOrder for dispatch', id, err);
-            await fetch(`https://app.forvoq.com/api/orders/${id}/tracking-code`, {
+            await fetch(`https://api.forvoq.com/api/orders/${id}/tracking-code`, {
               method: 'PATCH', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ trackingCode: finalCode }),
             });
-            await fetch(`https://app.forvoq.com/api/orders/${id}`, {
+            await fetch(`https://api.forvoq.com/api/orders/${id}`, {
               method: 'PATCH', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ status: 'dispatched', dispatchedAt }),
             });
           }
         } else {
-          await fetch(`https://app.forvoq.com/api/orders/${id}/tracking-code`, {
+          await fetch(`https://api.forvoq.com/api/orders/${id}/tracking-code`, {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ trackingCode: finalCode }),
           });
-          await fetch(`https://app.forvoq.com/api/orders/${id}`, {
+          await fetch(`https://api.forvoq.com/api/orders/${id}`, {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'dispatched', dispatchedAt }),
           });
@@ -2251,7 +2251,7 @@ const openMarkItemsDialog = (order) => {
       }
 
       // Fallback: PATCH endpoint if updateOrder is not available (save tracking code only)
-      const response = await fetch(`https://app.forvoq.com/api/orders/${orderId}/tracking-code`, {
+      const response = await fetch(`https://api.forvoq.com/api/orders/${orderId}/tracking-code`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trackingCode }),

@@ -26,7 +26,7 @@ const ForgotPassword = () => {
     try {
       // Check if identifier exists before sending OTP
       let userExists = false;
-      const checkRes = await fetch('https://app.forvoq.com/api/users');
+      const checkRes = await fetch('https://api.forvoq.com/api/users');
       const users = await checkRes.json();
       if (identifier.includes('@')) {
         userExists = users.some(u => u.email === identifier);
@@ -48,7 +48,7 @@ const ForgotPassword = () => {
       } else {
         body.merchantId = identifier;
       }
-      const response = await fetch('https://app.forvoq.com/api/forgot-password/request-otp', {
+      const response = await fetch('https://api.forvoq.com/api/forgot-password/request-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -74,7 +74,7 @@ const ForgotPassword = () => {
     setError('');
     setLoading(true);
     try {
-      const response = await fetch('https://app.forvoq.com/api/forgot-password/verify-otp', {
+      const response = await fetch('https://api.forvoq.com/api/forgot-password/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, otp }),
@@ -102,7 +102,7 @@ const ForgotPassword = () => {
     }
     setLoading(true);
     try {
-      const response = await fetch('https://app.forvoq.com/api/forgot-password/reset-password', {
+      const response = await fetch('https://api.forvoq.com/api/forgot-password/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, newPassword }),
