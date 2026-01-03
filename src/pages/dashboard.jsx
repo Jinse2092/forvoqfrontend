@@ -156,68 +156,9 @@ const Dashboard = () => {
       </div>
 
       <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader className="flex items-center justify-between">
-            <CardTitle>Recent Sales Trend</CardTitle>
-            <div className="flex items-center space-x-2">
-              <div className="text-xs text-muted-foreground">Range:</div>
-              <div className="flex items-center space-x-1">
-                <button onClick={() => setRangeDays(7)} className={`text-xs px-2 py-1 rounded ${rangeDays === 7 ? 'bg-primary text-white' : 'hover:bg-slate-100'}`}>7d</button>
-                <button onClick={() => setRangeDays(30)} className={`text-xs px-2 py-1 rounded ${rangeDays === 30 ? 'bg-primary text-white' : 'hover:bg-slate-100'}`}>30d</button>
-                <button onClick={() => setRangeDays('month')} className={`text-xs px-2 py-1 rounded ${rangeDays === 'month' ? 'bg-primary text-white' : 'hover:bg-slate-100'}`}>Month</button>
-                <button onClick={() => setRangeDays(90)} className={`text-xs px-2 py-1 rounded ${rangeDays === 90 ? 'bg-primary text-white' : 'hover:bg-slate-100'}`}>90d</button>
-                <button onClick={() => setRangeDays('all')} className={`text-xs px-2 py-1 rounded ${rangeDays === 'all' ? 'bg-primary text-white' : 'hover:bg-slate-100'}`}>All</button>
-              </div>
-              <button onClick={() => setSortAsc(s => !s)} className="text-xs px-2 py-1 rounded hover:bg-slate-100">{sortAsc ? 'Asc' : 'Desc'}</button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={340}>
-              <ComposedChart data={displayedData} margin={{ top: 10, right: 20, left: 0, bottom: 40 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 12 }} angle={-30} textAnchor="end" height={60} />
-                <YAxis />
-                <Tooltip formatter={(value, name) => {
-                  const label = name || '';
-                  if (label.includes('₹') || label.toLowerCase().includes('amount')) {
-                    return [`₹${Number(value).toFixed(2)}`, label];
-                  }
-                  return [value, label];
-                }} />
-                <Legend />
-                <Bar dataKey="salesAmount" fill="#10b981" name="Sales (₹)" />
-                <Bar dataKey="returnsAmount" fill="#fb923c" name="Returns (₹)" />
-                <Line type="monotone" dataKey="netAmount" stroke="#3b82f6" strokeWidth={2} name="Net (₹)" />
-                <Line type="monotone" dataKey="movingAvgAmount" stroke="#7c3aed" strokeDasharray="5 5" name="7-day Avg (₹)" />
-                <Area type="monotone" dataKey="cumulativeAmount" fill="#60a5fa" stroke="#60a5fa" opacity={0.12} name="Cumulative (₹)" />
-                <Brush dataKey="date" height={30} stroke="#8884d8" travellerWidth={8} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+        {/* Recent Sales Trend removed per request */}
 
-        <div className="md:col-span-1">
-          <Card className="mb-6">
-            <CardHeader className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Monthly Billing Summary — 2025-12</h3>
-              <div className="text-sm text-gray-600">Orders: 10 • Total Fees: ₹341.19</div>
-            </CardHeader>
-            <div className="p-4">
-              <h4 className="font-semibold">Monthly Component Totals</h4>
-              <div className="grid grid-cols-2 gap-2 mt-2 text-sm">
-                <div>Transportation:</div><div className="text-right">₹39.00</div>
-                <div>Warehousing:</div><div className="text-right">₹31.20</div>
-                <div>Itemwise Packing:</div><div className="text-right">₹195.00</div>
-                <div>Box Fee:</div><div className="text-right">₹36.99</div>
-                <div>Box Cutting:</div><div className="text-right">₹5.00</div>
-                <div>Tracking Fee:</div><div className="text-right">₹30.00</div>
-                <div className="font-semibold">Total Packing Fees:</div><div className="font-semibold text-right">₹341.19</div>
-                <div className="font-semibold">Received (selected month):</div><div className="font-semibold text-right">₹10000.00</div>
-                <div className="font-semibold">Pending (selected month):</div><div className="font-semibold text-right">₹-9658.81</div>
-              </div>
-            </div>
-          </Card>
-        </div>
+        {/* Monthly Billing Summary removed per request */}
       </div>
     </div>
   );

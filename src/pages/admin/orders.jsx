@@ -207,6 +207,8 @@ const AdminOrders = () => {
   const [trackingCodes, setTrackingCodes] = useState({});
   const [isOrderDetailsDialogOpen, setIsOrderDetailsDialogOpen] = useState(false);
   const [orderDetails, setOrderDetails] = useState(null);
+  // Item scanning session for barcode-verified packing
+  const [itemScanSession, setItemScanSession] = useState(null);
 
   // Helper to compute per-item total fees from product-level fields
   const calculatePerItemTotalFee = (prod) => {
@@ -232,6 +234,35 @@ const AdminOrders = () => {
     const transportation = Number(prod.transportationFee || 0);
     const warehousing = (Number(prod.warehousingRatePerKg || 0)) * (prod.weightKg || actual || 0);
     return { packing, transportation, warehousing };
+  };
+
+  // Resolve a packingDetails row into display-ready values, with fallbacks
+  const resolvePackingRow = (pd) => {
+    const prod = products.find(p => p.id === pd.productId) || {};
+    const orderItem = (orderDetails && Array.isArray(orderDetails.items))
+      ? orderDetails.items.find(i => i.productId === pd.productId) || {}
+      : {};
+
+    const name = pd.name || orderItem.name || prod.name || 'Item';
+    const quantity = Number(pd.quantity || orderItem.quantity || 1) || 1;
+
+    // If server already provided per-item components, prefer them
+    const hasServerComponents = (pd.itemPackingPerItem !== undefined) || (pd.transportationPerItem !== undefined) || (pd.warehousingPerItem !== undefined);
+    if (hasServerComponents) {
+      const itemPackingPerItem = Number(pd.itemPackingPerItem || 0);
+      const transportationPerItem = Number(pd.transportationPerItem || 0);
+      const warehousingPerItem = Number(pd.warehousingPerItem || 0);
+      const lineTotal = Number(pd.lineTotal !== undefined ? pd.lineTotal : ((itemPackingPerItem + transportationPerItem + warehousingPerItem) * quantity).toFixed(2));
+      return { name, quantity, itemPackingPerItem, transportationPerItem, warehousingPerItem, lineTotal };
+    }
+
+    // Otherwise compute from product metadata
+    const comps = calculatePerItemComponents(prod);
+    const itemPackingPerItem = Number((comps.packing || 0).toFixed(2));
+    const transportationPerItem = Number((comps.transportation || 0).toFixed(2));
+    const warehousingPerItem = Number((comps.warehousing || 0).toFixed(2));
+    const lineTotal = Number(((itemPackingPerItem + transportationPerItem + warehousingPerItem) * quantity).toFixed(2));
+    return { name, quantity, itemPackingPerItem, transportationPerItem, warehousingPerItem, lineTotal };
   };
 
   // Add state for newTrackingCode
@@ -399,7 +430,7 @@ const AdminOrders = () => {
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
         const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
           ? import.meta.env.VITE_API_BASE
-          : (isLocalDev ? 'https://api.forvoq.com' : 'https://api.forvoq.com');
+          : (isLocalDev ? 'https://app.forvoq.com' : 'https://app.forvoq.com');
         const url = `${apiBase}/api/packingfees?orderIds=${encodeURIComponent(q)}`;
         console.log('Admin: fetching packing fees batch from', url);
         const res = await fetch(url, { cache: 'no-store' });
@@ -477,13 +508,50 @@ const AdminOrders = () => {
     setIsTrackingCodeDialogOpen(false);
   };
 
+  // Helper: determine if an order can be packed based on client-side inventory (non-expired)
+  const canPack = (order) => {
+    if (!order || !Array.isArray(order.items) || order.items.length === 0) return false;
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayMs = 24 * 60 * 60 * 1000;
+    for (const it of order.items) {
+      const productId = it.productId;
+      // sum non-expired batch quantities for this merchant+product
+      const batchQty = (Array.isArray(inventory) ? inventory : [])
+        .filter(inv => inv && inv.productId === productId && inv.merchantId === order.merchantId)
+        .filter(inv => {
+          if (!inv) return false;
+          if (inv.expiryDate) {
+            const be = new Date(inv.expiryDate);
+            if (isNaN(be.getTime())) return true;
+            // exclude only batches whose expiry date is before today
+            if (be.setHours(0,0,0,0) < startOfToday.getTime()) return false;
+          }
+          return true;
+        })
+        .reduce((s, x) => s + (Number(x.quantity || 0)), 0);
+
+      // Allow packing when total non-expired batchQty >= required quantity
+      try {
+        const prodName = products.find(p => p.id === productId)?.name || it.name || productId;
+        console.debug('canPack check (batch total)', { orderId: order.id, productId, prodName, batchQty, required: Number(it.quantity || 0) });
+      } catch (e) { /* ignore */ }
+      if (Number(batchQty || 0) < Number(it.quantity || 0)) {
+        const prodName = products.find(p => p.id === productId)?.name || it.name || productId;
+        console.warn('canPack blocked (insufficient non-expired stock)', { orderId: order.id, productId, prodName, batchQty, required: Number(it.quantity || 0) });
+        return false;
+      }
+    }
+    return true;
+  };
+
   const downloadShippingLabel = async (order) => {
     // Check if merchant has a saved HTML template in server (MongoDB)
     const merchant = users.find(u => u.id === order.merchantId) || { companyName: '', id: '' };
     const templateKey = `shipping_label_template_${merchant.id}`;
     let tpl = null;
     try {
-          const res = await fetch(`https://api.forvoq.com/api/merchants/${merchant.id}/shipping-template`);
+          const res = await fetch(`https://app.forvoq.com/api/merchants/${merchant.id}/shipping-template`);
       if (res.ok) {
         const body = await res.json();
         tpl = body && body.template ? body.template : null;
@@ -636,10 +704,46 @@ const AdminOrders = () => {
   // Existing detection handler — kept for confirmed detections
   const handleDetected = async (raw) => {
     if (!raw) return;
-    // stop camera first
-    await stopScanner();
     const scanned = String(raw || '').trim();
     console.debug('Scanner confirmed raw value:', scanned);
+
+    // If we are in item-scan session, treat scanned value as product barcode
+    if (itemScanSession && itemScanSession.orderId) {
+      try {
+        const candidates = [scanned, scanned.replace(/\D+/g, '')];
+        const session = { ...itemScanSession };
+        let matched = null;
+        for (const c of candidates) {
+          if (!c) continue;
+          const found = session.expected.find(e => String(e.barcode || '').trim() === String(c).trim());
+          if (found) { matched = found; break; }
+        }
+        if (!matched) {
+          toast({ title: 'Invalid Barcode', description: `Scanned code ${scanned} does not match any expected item for this order.`, variant: 'destructive' });
+          // keep scanner closed — user can re-open
+          setItemScanSession(session);
+          return;
+        }
+        // increment scanned count for productId
+        const pid = matched.productId;
+        session.scanned = session.scanned || {};
+        session.scanned[pid] = (session.scanned[pid] || 0) + 1;
+        // cap to required
+        if (session.scanned[pid] > matched.required) session.scanned[pid] = matched.required;
+        // Check completion across ALL items (including manual ones)
+        const allDone = (session.allItems || []).every(e => (session.scanned[e.productId] || 0) >= e.required);
+        session.completed = allDone;
+        setItemScanSession(session);
+        if (allDone) {
+          toast({ title: 'Scanning Complete', description: 'All barcode items scanned for this order.' });
+        } else {
+          toast({ title: 'Scanned', description: `${matched.name || matched.productId}: ${session.scanned[pid]}/${matched.required}` });
+        }
+        return;
+      } catch (e) {
+        console.warn('Item-scan processing failed', e);
+      }
+    }
 
     // Build candidate variations to handle barcodes that include prefixes/suffixes
     const candidates = [];
@@ -663,6 +767,9 @@ const AdminOrders = () => {
         return;
       }
     }
+
+    // stop camera first for non-item scanning flows (order lookup)
+    await stopScanner();
 
     // If not found locally, try backend with each candidate
     for (const c of candidates) {
@@ -837,6 +944,75 @@ const AdminOrders = () => {
       toast({ title: 'Camera error', description: 'Could not open camera. Check permissions.' });
       setIsScannerOpen(false);
     }
+  };
+
+  // Open item scanner for a specific order — prepares expected barcode list
+  const openItemScanner = (order) => {
+    if (!order || !order.items) return;
+    // Build full item list and expected barcode list
+    const allItems = [];
+    const expected = [];
+    for (const it of order.items) {
+      const prod = (products || []).find(p => p.id === it.productId) || null;
+      const required = Number(it.quantity || 1);
+      const name = (prod && (prod.name || prod.sku)) || (it.name || it.productId);
+      const barcode = prod && prod.barcodeId ? String(prod.barcodeId).trim() : null;
+      allItems.push({ productId: it.productId, required, name, barcode });
+      if (barcode) expected.push({ productId: it.productId, barcode, required, name });
+    }
+    if (expected.length === 0 && allItems.length === 0) {
+      toast({ title: 'No items', description: 'This order has no items.' });
+      return;
+    }
+    // initialize scanned counts to zero for all items so manual ticking works
+    const scanned = {};
+    for (const ai of allItems) scanned[ai.productId] = 0;
+    setItemScanSession({ orderId: order.id, expected, allItems, scanned, completed: false });
+    // open camera to scan barcode items (or allow manual ticks)
+    openScannerModal();
+  };
+
+  const ensureScanSessionForOrder = (order) => {
+    if (!order) return null;
+    if (itemScanSession && itemScanSession.orderId === order.id) return itemScanSession;
+    // create a session without opening camera
+    const allItems = [];
+    const expected = [];
+    for (const it of order.items || []) {
+      const prod = (products || []).find(p => p.id === it.productId) || null;
+      const required = Number(it.quantity || 1);
+      const name = (prod && (prod.name || prod.sku)) || (it.name || it.productId);
+      const barcode = prod && prod.barcodeId ? String(prod.barcodeId).trim() : null;
+      allItems.push({ productId: it.productId, required, name, barcode });
+      if (barcode) expected.push({ productId: it.productId, barcode, required, name });
+    }
+    const scanned = {};
+    for (const ai of allItems) scanned[ai.productId] = 0;
+    const s = { orderId: order.id, expected, allItems, scanned, completed: false };
+    setItemScanSession(s);
+    return s;
+  };
+
+  const updateManualScanCount = (orderId, productId, delta) => {
+    // Ensure a session exists for this order (Prepare may not have been clicked yet)
+    let session = itemScanSession && itemScanSession.orderId === orderId ? { ...itemScanSession } : null;
+    if (!session) {
+      const order = (ordersForWeightUpdate || []).find(o => o.id === orderId);
+      if (!order) return;
+      session = ensureScanSessionForOrder(order) || { orderId, scanned: {}, allItems: [] };
+    }
+    session.scanned = session.scanned || {};
+    const ai = (session.allItems || []).find(a => a.productId === productId);
+    if (!ai) return;
+    const prev = Number(session.scanned[productId] || 0);
+    let next = prev + Number(delta || 0);
+    if (next < 0) next = 0;
+    if (next > ai.required) next = ai.required;
+    session.scanned[productId] = next;
+    // recompute completion across all items
+    const allDone = (session.allItems || []).every(e => (session.scanned[e.productId] || 0) >= e.required);
+    session.completed = allDone;
+    setItemScanSession(session);
   };
 
 const openMarkItemsDialog = (order) => {
@@ -1129,7 +1305,7 @@ const openMarkItemsDialog = (order) => {
       let tpl = null;
       
       try {
-          const res = await fetch(`https://api.forvoq.com/api/merchants/${merchant.id}/shipping-template`);
+          const res = await fetch(`https://app.forvoq.com/api/merchants/${merchant.id}/shipping-template`);
         if (res.ok) {
           const body = await res.json();
           tpl = body && body.template ? body.template : null;
@@ -1479,6 +1655,23 @@ const openMarkItemsDialog = (order) => {
       setIsWeightDialogOpen(false);
       return;
     }
+    // Prevent marking packed if any selected order contains barcode-tracked items
+    // and those items have not been fully scanned in an active itemScanSession.
+    const ordersRequiringScan = (ordersForWeightUpdate || []).filter(order => {
+      return (order.items || []).some(it => {
+        const prod = (products || []).find(p => p.id === it.productId);
+        return prod && prod.barcodeId;
+      });
+    });
+    if (ordersRequiringScan.length > 0) {
+      // If multiple orders selected, require scanning each one separately
+      const notScanned = ordersRequiringScan.filter(o => !(itemScanSession && itemScanSession.orderId === o.id && itemScanSession.completed === true));
+      if (notScanned.length > 0) {
+        const ids = notScanned.map(o => o.id).join(', ');
+        toast({ title: 'Scan Required', description: `Please scan barcode items for order(s): ${ids} before marking packed.`, variant: 'destructive' });
+        return;
+      }
+    }
     try {
       const now = new Date().toISOString();
       const results = await Promise.all(ordersForWeightUpdate.map(async (order) => {
@@ -1564,25 +1757,49 @@ const openMarkItemsDialog = (order) => {
         );
         if (!persistedOK) {
           try {
-            console.warn(`MarkPacked: server response missing packed fields for ${order.id}, fetching server copy`);
-            const serverCopy = await fetchOrderFromServer(order.id);
-            console.log('MarkPacked: server copy for', order.id, serverCopy);
-            if (serverCopy) {
-              // If server copy contains the fields, replace local order with authoritative copy
-              if (typeof replaceOrder === 'function') replaceOrder(serverCopy);
-              if (serverCopy.totalWeightKg !== undefined || serverCopy.packedweight !== undefined || serverCopy.boxFee !== undefined) {
-                console.info(`MarkPacked: server persisted fields for ${order.id}`, {
-                  totalWeightKg: serverCopy.totalWeightKg,
-                  packedweight: serverCopy.packedweight,
-                  boxFee: serverCopy.boxFee,
-                  boxCutting: serverCopy.boxCutting,
-                });
+              console.warn(`MarkPacked: server response missing packed fields for ${order.id}, fetching server copy`);
+              let serverCopy = await fetchOrderFromServer(order.id);
+              console.log('MarkPacked: server copy for', order.id, serverCopy);
+              if (serverCopy) {
+                // If server copy contains the fields, replace local order with authoritative copy
+                if (typeof replaceOrder === 'function') replaceOrder(serverCopy);
+                if (serverCopy.totalWeightKg !== undefined || serverCopy.packedweight !== undefined || serverCopy.boxFee !== undefined) {
+                  console.info(`MarkPacked: server persisted fields for ${order.id}`, {
+                    totalWeightKg: serverCopy.totalWeightKg,
+                    packedweight: serverCopy.packedweight,
+                    boxFee: serverCopy.boxFee,
+                    boxCutting: serverCopy.boxCutting,
+                  });
+                } else {
+                  toast({ title: 'Warning', description: `Server did not persist packing data for ${order.id}. Check backend logs.`, variant: 'destructive' });
+                }
               } else {
-                toast({ title: 'Warning', description: `Server did not persist packing data for ${order.id}. Check backend logs.`, variant: 'destructive' });
+                toast({ title: 'Warning', description: `Unable to verify server persistence for ${order.id}.`, variant: 'destructive' });
               }
-            } else {
-              toast({ title: 'Warning', description: `Unable to verify server persistence for ${order.id}.`, variant: 'destructive' });
-            }
+
+              // If server copy exists but lacks packingDetails, try forcing allocation via frontend
+              try {
+                const needsAllocation = serverCopy && (!serverCopy.packingDetails || serverCopy.packingDetails.length === 0);
+                if (needsAllocation) {
+                  console.log('MarkPacked: attempting allocate endpoint for', order.id);
+                  const allocResp = await fetch(`/api/orders/${order.id}/allocate`, { method: 'POST' });
+                  if (allocResp.ok) {
+                    const allocData = await allocResp.json();
+                    if (allocData) {
+                      if (typeof replaceOrder === 'function') replaceOrder(allocData);
+                      if (orderDetails && allocData && allocData.id === orderDetails.id) setOrderDetails(allocData);
+                      toast({ title: 'Allocation applied', description: `Allocations saved for ${order.id}` });
+                    }
+                  } else {
+                    const txt = await allocResp.text();
+                    console.warn('Allocation endpoint failed for', order.id, allocResp.status, txt);
+                    toast({ title: 'Allocation failed', description: `Allocate API returned ${allocResp.status} for ${order.id}` , variant: 'destructive' });
+                  }
+                }
+              } catch (allocErr) {
+                console.error('Error calling allocate endpoint for', order.id, allocErr);
+                toast({ title: 'Allocation error', description: `Failed to run allocation for ${order.id}. See console.`, variant: 'destructive' });
+              }
           } catch (e) {
             console.error('MarkPacked: verification fetch failed', e);
             toast({ title: 'Warning', description: `Verification failed for ${order.id}. See console for details.`, variant: 'destructive' });
@@ -1756,7 +1973,7 @@ const openMarkItemsDialog = (order) => {
 
   // Fetch a fresh order document directly from the backend (reads DB)
   const fetchOrderFromServer = async (orderId) => {
-    const base = 'https://api.forvoq.com';
+    const base = 'https://app.forvoq.com';
     const candidates = [
       `${base}/api/orders-debug/${orderId}`,
       `${base}/api/orders/${orderId}`,
@@ -1838,7 +2055,7 @@ const openMarkItemsDialog = (order) => {
       const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
       const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
         ? import.meta.env.VITE_API_BASE
-        : (isLocalDev ? 'https://api.forvoq.com' : 'https://api.forvoq.com');
+        : (isLocalDev ? 'https://app.forvoq.com' : 'https://app.forvoq.com');
       const singleUrl = `${apiBase}/api/packingfees/${encodeURIComponent(orderId)}`;
       console.log('Admin: fetching packing fee for order', orderId, 'from', singleUrl);
       const res = await fetch(singleUrl, { cache: 'no-store' });
@@ -1875,7 +2092,7 @@ const openMarkItemsDialog = (order) => {
   // Function to save the tracking code to the database
   const saveTrackingCode = async (orderId, trackingCode) => {
     try {
-      const response = await fetch(`https://api.forvoq.com/api/orders/${orderId}/tracking-code`, {
+      const response = await fetch(`https://app.forvoq.com/api/orders/${orderId}/tracking-code`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -1912,7 +2129,7 @@ const openMarkItemsDialog = (order) => {
         }
         anySent = true;
         console.log(`Saving tracking code for ${id}:`, code);
-        const res = await fetch(`https://api.forvoq.com/api/orders/${id}/tracking-code`, {
+        const res = await fetch(`https://app.forvoq.com/api/orders/${id}/tracking-code`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ trackingCode: code }),
@@ -1984,21 +2201,21 @@ const openMarkItemsDialog = (order) => {
             if (orderDetails && orderDetails.id === id && saved) setOrderDetails(saved);
           } catch (err) {
             console.error('Failed updateOrder for dispatch', id, err);
-            await fetch(`https://api.forvoq.com/api/orders/${id}/tracking-code`, {
+            await fetch(`https://app.forvoq.com/api/orders/${id}/tracking-code`, {
               method: 'PATCH', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ trackingCode: finalCode }),
             });
-            await fetch(`https://api.forvoq.com/api/orders/${id}`, {
+            await fetch(`https://app.forvoq.com/api/orders/${id}`, {
               method: 'PATCH', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ status: 'dispatched', dispatchedAt }),
             });
           }
         } else {
-          await fetch(`https://api.forvoq.com/api/orders/${id}/tracking-code`, {
+          await fetch(`https://app.forvoq.com/api/orders/${id}/tracking-code`, {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ trackingCode: finalCode }),
           });
-          await fetch(`https://api.forvoq.com/api/orders/${id}`, {
+          await fetch(`https://app.forvoq.com/api/orders/${id}`, {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'dispatched', dispatchedAt }),
           });
@@ -2034,7 +2251,7 @@ const openMarkItemsDialog = (order) => {
       }
 
       // Fallback: PATCH endpoint if updateOrder is not available (save tracking code only)
-      const response = await fetch(`https://api.forvoq.com/api/orders/${orderId}/tracking-code`, {
+      const response = await fetch(`https://app.forvoq.com/api/orders/${orderId}/tracking-code`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trackingCode }),
@@ -2156,53 +2373,105 @@ const openMarkItemsDialog = (order) => {
 
       {/* Weight Dialog (for Mark Packed) */}
       <Dialog open={isWeightDialogOpen} onOpenChange={setIsWeightDialogOpen}>
-        <DialogContent className="max-w-full sm:max-w-2xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto" aria-describedby="weight-dialog-description">
+        <DialogContent className="max-w-full sm:max-w-3xl p-4 sm:p-6 max-h-[90vh] overflow-y-auto" aria-describedby="weight-dialog-description">
           <DialogTitle>Enter Weights / Mark Packed</DialogTitle>
           <DialogDescription id="weight-dialog-description">
             Enter total weight (kg) for the selected orders, then click Mark Packed.
           </DialogDescription>
           <div className="space-y-4">
             {(ordersForWeightUpdate || []).map((order) => (
-              <div key={order.id} className="flex flex-col sm:flex-row sm:items-center gap-2">
-                <div className="flex items-center gap-2">
-                  <Label htmlFor={`weight-${order.id}`}>Customer: {order.customerName || order.id}</Label>
-                  <Input
-                    id={`weight-${order.id}`}
-                    type="number"
-                    step="0.001"
-                    value={weights[order.id] || ''}
-                    onChange={(e) => setWeights((prev) => ({ ...prev, [order.id]: e.target.value }))}
-                    placeholder="Weight (kg)"
-                    className="w-full sm:w-40"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Label htmlFor={`boxFee-${order.id}`}>Box Fee (₹)</Label>
-                  <Input
-                    id={`boxFee-${order.id}`}
-                    type="number"
-                    step="0.01"
-                    value={boxFees[order.id] ?? (packingFeesByOrder && packingFeesByOrder[order.id] && packingFeesByOrder[order.id].boxFee !== undefined ? String(packingFeesByOrder[order.id].boxFee) : (order.boxFee !== undefined ? String(order.boxFee) : ''))}
-                    onChange={(e) => setBoxFees((prev) => ({ ...prev, [order.id]: e.target.value }))}
-                    placeholder="e.g. 10.00"
-                    className="w-full sm:w-32"
-                  />
-                      <Label htmlFor={`boxCutting-${order.id}`} className="flex items-center gap-1">
-                    <input
-                      id={`boxCutting-${order.id}`}
-                      type="checkbox"
-                      checked={boxCuttings[order.id] ?? (packingFeesByOrder && packingFeesByOrder[order.id] && packingFeesByOrder[order.id].boxCutting !== undefined ? Boolean(packingFeesByOrder[order.id].boxCutting) : Boolean(order.boxCutting))}
-                      onChange={(e) => setBoxCuttings((prev) => ({ ...prev, [order.id]: e.target.checked }))}
-                    />
-                    <span className="text-sm">Box Cutting (+₹1)</span>
-                  </Label>
+              <div key={order.id} className="bg-gray-50 p-3 rounded-lg border">
+                <div className="flex flex-col lg:flex-row lg:items-start gap-4">
+                  {/* Left: weight & actions */}
+                  <div className="flex-shrink-0 w-full lg:w-72">
+                    <div className="mb-2">
+                      <div className="text-xs text-gray-500">Customer</div>
+                      <div className="font-medium text-gray-800">{order.customerName || order.id}</div>
+                    </div>
+                    <div className="mb-3">
+                      <Label htmlFor={`weight-${order.id}`}>Total Weight (kg)</Label>
+                      <Input
+                        id={`weight-${order.id}`}
+                        type="number"
+                        step="0.001"
+                        value={weights[order.id] || ''}
+                        onChange={(e) => setWeights((prev) => ({ ...prev, [order.id]: e.target.value }))}
+                        placeholder="Weight (kg)"
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button variant="outline" className="flex-1" onClick={() => ensureScanSessionForOrder(order)}>Prepare</Button>
+                      <Button className="flex-1" onClick={() => openItemScanner(order)}>Open Scanner</Button>
+                    </div>
+                  </div>
+
+                  {/* Middle: scanning + items */}
+                  <div className="flex-1">
+                    <div className="text-sm font-medium mb-2">Item Scanning</div>
+                    <div className="grid gap-2">
+                      {(order.items || []).map(it => {
+                        const prod = (products || []).find(p => p.id === it.productId) || {};
+                        const required = Number(it.quantity || 1);
+                        const scannedCount = (itemScanSession && itemScanSession.orderId === order.id && itemScanSession.scanned && itemScanSession.scanned[it.productId]) ? itemScanSession.scanned[it.productId] : 0;
+                        const hasBarcode = prod && prod.barcodeId;
+                        return (
+                          <div key={it.productId} className="flex items-center justify-between p-2 bg-white border rounded">
+                            <div className="flex-1">
+                              <div className="font-medium">{prod.name || it.name || it.productId}</div>
+                              <div className="text-sm text-gray-500">Required: {required} {hasBarcode ? '(barcode)' : '(manual)'}</div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {hasBarcode ? (
+                                <div className="text-sm font-medium">{scannedCount}/{required}</div>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <button type="button" className="px-2 bg-gray-100 rounded" onClick={() => updateManualScanCount(order.id, it.productId, -1)}>-</button>
+                                  <div className="w-10 text-center">{scannedCount}</div>
+                                  <button type="button" className="px-2 bg-gray-100 rounded" onClick={() => updateManualScanCount(order.id, it.productId, 1)}>+</button>
+                                </div>
+                              )}
+                              <div className="ml-4">{(scannedCount >= required) ? <span className="text-green-600">✓</span> : null}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Right: fees */}
+                  <div className="w-full lg:w-56 flex-shrink-0">
+                    <div className="mb-2">
+                      <Label htmlFor={`boxFee-${order.id}`}>Box Fee (₹)</Label>
+                      <Input
+                        id={`boxFee-${order.id}`}
+                        type="number"
+                        step="0.01"
+                        value={boxFees[order.id] ?? (packingFeesByOrder && packingFeesByOrder[order.id] && packingFeesByOrder[order.id].boxFee !== undefined ? String(packingFeesByOrder[order.id].boxFee) : (order.boxFee !== undefined ? String(order.boxFee) : ''))}
+                        onChange={(e) => setBoxFees((prev) => ({ ...prev, [order.id]: e.target.value }))}
+                        placeholder="e.g. 10.00"
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="mb-2">
+                      <Label htmlFor={`boxCutting-${order.id}`} className="flex items-center gap-2">
+                        <input
+                          id={`boxCutting-${order.id}`}
+                          type="checkbox"
+                          checked={boxCuttings[order.id] ?? (packingFeesByOrder && packingFeesByOrder[order.id] && packingFeesByOrder[order.id].boxCutting !== undefined ? Boolean(packingFeesByOrder[order.id].boxCutting) : Boolean(order.boxCutting))}
+                          onChange={(e) => setBoxCuttings((prev) => ({ ...prev, [order.id]: e.target.checked }))}
+                        />
+                        <span className="text-sm">Box Cutting (+₹1)</span>
+                      </Label>
+                    </div>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
-          <div className="flex justify-end gap-2 mt-4">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => { setIsWeightDialogOpen(false); setOrdersForWeightUpdate([]); setWeights({}); }}>Cancel</Button>
-            <Button onClick={handleConfirmMarkPacked}>Mark Packed</Button>
+            <Button onClick={handleConfirmMarkPacked} disabled={!canPack((ordersForWeightUpdate && ordersForWeightUpdate[0]) || null)}>Mark Packed</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -2215,25 +2484,23 @@ const openMarkItemsDialog = (order) => {
               Details for Order ID: <span className="font-medium text-gray-800">{orderDetails?.id || 'N/A'}</span>
             </DialogDescription>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="space-y-3">
                 <div>
                   <div className="text-xs text-gray-500">Customer</div>
                   <div className="font-medium text-gray-800">{orderDetails?.customerName || <span className="italic text-gray-400">No name</span>}</div>
                 </div>
-
                 <div>
                   <div className="text-xs text-gray-500">Phone</div>
                   <div className="text-gray-800">{orderDetails?.phone || 'N/A'}</div>
                 </div>
-
                 <div>
                   <div className="text-xs text-gray-500">Address</div>
                   <div className="text-gray-800">{orderDetails ? `${orderDetails.address || ''}${orderDetails.city ? ', ' + orderDetails.city : ''}${orderDetails.state ? ', ' + orderDetails.state : ''}${orderDetails.pincode ? ' — PIN: ' + orderDetails.pincode : ''}` : 'N/A'}</div>
                 </div>
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <div>
                   <div className="text-xs text-gray-500">Date & Time</div>
                   <div className="text-gray-800">{formatDateTime(orderDetails?.date || orderDetails?.createdAt)}</div>
@@ -2248,7 +2515,9 @@ const openMarkItemsDialog = (order) => {
                   <div className="text-xs text-gray-500">Source</div>
                   <div className="text-gray-800">{orderDetails?.source || <span className="italic text-gray-400">—</span>}</div>
                 </div>
+              </div>
 
+              <div className="space-y-3">
                 <div>
                   <div className="text-xs text-gray-500">Weight (kg)</div>
                   <div className="text-gray-800">{(() => { const w = computeWeight(orderDetails); return w !== null ? Number(w).toFixed(3) : 'N/A'; })()}</div>
@@ -2260,8 +2529,8 @@ const openMarkItemsDialog = (order) => {
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
+            <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-2">
                 <div className="text-xs text-gray-500">Packing Fee</div>
                 <div className="text-gray-800">{(() => {
                   // Prefer authoritative server value when available on the order or fetched packingFees map
@@ -2299,35 +2568,41 @@ const openMarkItemsDialog = (order) => {
                             </tr>
                           </thead>
                           <tbody>
-                            {orderDetails.packingDetails.map((it, idx) => (
-                              <tr key={idx} className="border-t border-gray-100">
-                                <td className="py-3 text-base">{it.name || 'Item'}</td>
-                                <td className="py-3 text-base">{it.quantity || 1}</td>
-                                <td className="py-3 text-base">₹{(Number(it.itemPackingPerItem || 0)).toFixed(2)}</td>
-                                <td className="py-3 text-base">₹{(Number(it.transportationPerItem || 0)).toFixed(2)}</td>
-                                <td className="py-3 text-base">₹{(Number(it.warehousingPerItem || 0)).toFixed(2)}</td>
-                                <td className="py-3 text-base">₹{(Number(it.lineTotal || 0)).toFixed(2)}</td>
-                              </tr>
-                            ))}
+                            {orderDetails.packingDetails.map((it, idx) => {
+                              const row = resolvePackingRow(it);
+                              return (
+                                <tr key={idx} className="border-t border-gray-100">
+                                  <td className="py-3 text-base">{row.name}</td>
+                                  <td className="py-3 text-base">{row.quantity}</td>
+                                  <td className="py-3 text-base">₹{(Number(row.itemPackingPerItem || 0)).toFixed(2)}</td>
+                                  <td className="py-3 text-base">₹{(Number(row.transportationPerItem || 0)).toFixed(2)}</td>
+                                  <td className="py-3 text-base">₹{(Number(row.warehousingPerItem || 0)).toFixed(2)}</td>
+                                  <td className="py-3 text-base">₹{(Number(row.lineTotal || 0)).toFixed(2)}</td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
                       {/* Mobile: stacked view */}
                       <div className="sm:hidden space-y-3">
-                        {orderDetails.packingDetails.map((it, idx) => (
-                          <div key={idx} className="p-3 bg-white border border-gray-100 rounded">
-                            <div className="flex justify-between items-center">
-                              <div className="font-medium text-base">{it.name || 'Item'}</div>
-                              <div className="text-sm text-gray-600">x{it.quantity || 1}</div>
+                        {orderDetails.packingDetails.map((it, idx) => {
+                          const row = resolvePackingRow(it);
+                          return (
+                            <div key={idx} className="p-3 bg-white border border-gray-100 rounded">
+                              <div className="flex justify-between items-center">
+                                <div className="font-medium text-base">{row.name}</div>
+                                <div className="text-sm text-gray-600">x{row.quantity}</div>
+                              </div>
+                              <div className="mt-3 grid grid-cols-2 gap-3 text-base text-gray-800">
+                                <div className="flex justify-between"><span>Packing</span><span>₹{(Number(row.itemPackingPerItem || 0)).toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span>Transport</span><span>₹{(Number(row.transportationPerItem || 0)).toFixed(2)}</span></div>
+                                <div className="flex justify-between"><span>Warehousing</span><span>₹{(Number(row.warehousingPerItem || 0)).toFixed(2)}</span></div>
+                                <div className="flex justify-between font-medium"><span>Line Total</span><span>₹{(Number(row.lineTotal || 0)).toFixed(2)}</span></div>
+                              </div>
                             </div>
-                            <div className="mt-3 grid grid-cols-2 gap-3 text-base text-gray-800">
-                              <div className="flex justify-between"><span>Packing</span><span>₹{(Number(it.itemPackingPerItem || 0)).toFixed(2)}</span></div>
-                              <div className="flex justify-between"><span>Transport</span><span>₹{(Number(it.transportationPerItem || 0)).toFixed(2)}</span></div>
-                              <div className="flex justify-between"><span>Warehousing</span><span>₹{(Number(it.warehousingPerItem || 0)).toFixed(2)}</span></div>
-                              <div className="flex justify-between font-medium"><span>Line Total</span><span>₹{(Number(it.lineTotal || 0)).toFixed(2)}</span></div>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                     {/* Extras and totals: match merchant style (no Server total shown) */}
@@ -2373,7 +2648,56 @@ const openMarkItemsDialog = (order) => {
               </div>
             </div>
 
-                <div className="mt-4">
+            {/* Allocations / packingDetails (server-side allocations) */}
+            {(orderDetails?.packingDetails && orderDetails.packingDetails.some(p => Array.isArray(p.allocations) && p.allocations.length > 0)) ? (
+              <div className="mt-4">
+                <div className="text-xs text-gray-500 mb-2">Allocations</div>
+                <div className="bg-white rounded shadow-sm p-3">
+                  {(orderDetails.packingDetails || []).filter(pg => Array.isArray(pg.allocations) && pg.allocations.length > 0).map((grp, gidx) => (
+                    <div key={gidx} className="mb-3">
+                      <div className="font-medium text-sm">{grp.name || grp.productId || 'Product'}</div>
+                      <div className="mt-2 overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-xs text-gray-600">
+                              <th className="pb-2">Inventory ID</th>
+                              <th className="pb-2">Inbound Date</th>
+                              <th className="pb-2">Expiry</th>
+                              <th className="pb-2">Used</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {grp.allocations.map((a, ai) => (
+                              <tr key={ai} className="border-t border-gray-100">
+                                <td className="py-2 text-sm break-words">{a.inventoryId || a._id || a.inventory}</td>
+                                <td className="py-2 text-sm">{formatDateTime(a.sourceInboundDate || a.createdAt)}</td>
+                                <td className="py-2 text-sm">{a.expiryDate ? formatDateTime(a.expiryDate) : '-'}</td>
+                                <td className="py-2 text-sm">{a.used ?? a.quantity ?? '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-4">
+                  {itemScanSession && itemScanSession.orderId === orderDetails?.id && (
+                    <div className="mb-3 p-3 bg-yellow-50 rounded">
+                      <div className="text-sm font-medium">Scan Progress</div>
+                      <div className="mt-2 text-sm">
+                        {(itemScanSession.expected || []).map((e) => (
+                          <div key={e.productId} className="flex justify-between">
+                            <div>{e.name}</div>
+                            <div>{(itemScanSession.scanned && itemScanSession.scanned[e.productId]) || 0}/{e.required}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
               <div className="text-xs text-gray-500 mb-2">Items</div>
               <ul className="divide-y divide-gray-100 bg-white rounded shadow-sm">
                 {(orderDetails?.items || []).length === 0 ? (
@@ -2393,7 +2717,24 @@ const openMarkItemsDialog = (order) => {
               {orderDetails && (
                 <>
                   <Button className="px-4 py-2 text-sm w-full sm:w-auto" onClick={() => openAdminEditDialog(orderDetails)}>Edit</Button>
-                  <Button className="px-4 py-2 text-sm w-full sm:w-auto" onClick={() => openWeightDialogForOrder(orderDetails)}>Mark Packed</Button>
+                  {(() => {
+                    const barcodeItems = (orderDetails?.items || []).filter(it => {
+                      const prod = (products || []).find(p => p.id === it.productId);
+                      return prod && prod.barcodeId;
+                    });
+                    const requiresScan = (barcodeItems || []).length > 0;
+                    const scannedComplete = requiresScan && itemScanSession && itemScanSession.orderId === orderDetails.id && itemScanSession.completed === true;
+                    return (
+                      <>
+                        {requiresScan && (
+                          <Button className="px-4 py-2 text-sm w-full sm:w-auto" onClick={() => openItemScanner(orderDetails)}>Scan Items</Button>
+                        )}
+                        <Button className="px-4 py-2 text-sm w-full sm:w-auto" onClick={() => openWeightDialogForOrder(orderDetails)} disabled={(requiresScan && !scannedComplete) || !canPack(orderDetails)}>
+                          Mark Packed
+                        </Button>
+                      </>
+                    );
+                  })()}
                   {orderDetails?.status === 'packed' && (
                     <Button
                       className="px-4 py-2 text-sm w-full sm:w-auto"
@@ -2494,7 +2835,7 @@ const openMarkItemsDialog = (order) => {
               )}
               <Button variant="destructive" size="sm" onClick={groupDeleteSelected}>Delete Selected</Button>
               <Button variant="outline" size="sm" onClick={groupDownloadLabels}>Download Labels</Button>
-              <Button variant="outline" size="sm" onClick={groupMarkPacked}>Mark Packed</Button>
+              
               <Button variant="outline" size="sm" onClick={groupDispatch}>Dispatch</Button>
               <Button variant="outline" size="sm" onClick={groupMarkDelivered}>Mark Delivered</Button>
             </div>

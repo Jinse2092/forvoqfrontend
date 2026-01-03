@@ -124,6 +124,7 @@ const Inbound = () => {
       type: inboundDetails.type,
       status: 'pending',
       date: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString(),
     };
 
     addInboundRequest(newInbound);

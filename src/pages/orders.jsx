@@ -406,7 +406,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
         const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
           ? import.meta.env.VITE_API_BASE
-          : (isLocalDev ? 'https://api.forvoq.com' : 'https://api.forvoq.com');
+          : (isLocalDev ? 'https://app.forvoq.com' : 'https://app.forvoq.com');
         const url = `${apiBase}/api/packingfees?orderIds=${encodeURIComponent(q)}`;
         console.log('Merchant: fetching packing fees batch from', url);
         const res = await fetch(url, { cache: 'no-store' });
@@ -495,22 +495,6 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
   const handleItemChange = (index, field, value) => {
     if (field === 'quantity') {
       const qty = parseInt(value) || 1;
-      const productId = items[index].productId;
-      if (productId) {
-        const inventoryItem = inventory.find(inv => inv.productId === productId && inv.merchantId === currentUser?.id);
-        const inventoryQty = inventoryItem ? inventoryItem.quantity : 0;
-        const pendingQty = orders
-          .filter(o => o.status === 'pending' && o.merchantId === currentUser?.id)
-          .reduce((sum, order) => {
-            const item = order.items.find(i => i.productId === productId);
-            return sum + (item ? item.quantity : 0);
-          }, 0);
-        const availableQty = inventoryQty - pendingQty;
-        if (qty > availableQty) {
-          alert(`Quantity cannot exceed available inventory minus pending orders (${availableQty}).`);
-          return;
-        }
-      }
       setItems(prev => {
         const newItems = [...prev];
         newItems[index][field] = qty;
@@ -551,19 +535,8 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
       }
       const productId = items[0].productId;
       const qty = items[0].quantity;
-      const inventoryItem = inventory.find(inv => inv.productId === productId && inv.merchantId === currentUser?.id);
-      const inventoryQty = inventoryItem ? inventoryItem.quantity : 0;
-      const pendingQty = orders
-        .filter(o => o.status === 'pending' && o.merchantId === currentUser?.id)
-        .reduce((sum, order) => {
-          const item = order.items.find(i => i.productId === productId);
-          return sum + (item ? item.quantity : 0);
-        }, 0);
-      const availableQty = inventoryQty - pendingQty;
-      if (qty > availableQty) {
-        alert(`Quantity cannot exceed available inventory minus pending orders (${availableQty}).`);
-        return;
-      }
+      // Order creation does not validate inventory here; allocation/validation
+      // happens when an admin marks the order as packed.
       // Calculate weight per item (use max of actual and volumetric) and total weight per item
       const itemsWithWeights = items.map(item => {
         const product = products.find(p => p.id === item.productId) || {};
@@ -738,7 +711,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
         const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
           ? import.meta.env.VITE_API_BASE
-          : (isLocalDev ? 'https://api.forvoq.com' : 'https://api.forvoq.com');
+          : (isLocalDev ? 'https://app.forvoq.com' : 'https://app.forvoq.com');
         const singleUrl = `${apiBase}/api/packingfees/${encodeURIComponent(order.id)}`;
         console.log('Merchant: fetching packing fee for order', order.id, 'from', singleUrl);
         const res = await fetch(singleUrl, { cache: 'no-store' });
@@ -859,7 +832,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
         const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
           ? import.meta.env.VITE_API_BASE
-          : (isLocalDev ? 'https://api.forvoq.com' : 'https://api.forvoq.com');
+          : (isLocalDev ? 'https://app.forvoq.com' : 'https://app.forvoq.com');
         if (currentUser && currentUser.id) {
           const tplRes = await fetch(`${apiBase}/api/merchants/${encodeURIComponent(currentUser.id)}/shipping-template`, { cache: 'no-store' });
           if (tplRes && tplRes.ok) {
@@ -1129,7 +1102,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrders.map(order => {
+                    {filteredOrders.map((order, idx) => {
                       // calculate packing fee for this order (items + box + box-cutting + tracking)
                       const computedPackingFee = (() => {
                         const itemsFee = (order.items || []).reduce((sum, item) => {
@@ -1147,7 +1120,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       })();
                       const packingFee = (order.packingFee !== undefined && order.packingFee !== null && order.packingFee !== '') ? Number(order.packingFee) : computedPackingFee;
                       return (
-                      <TableRow key={order.id}>
+                      <TableRow key={order.id || `order-${idx}`}>
                           <TableCell className="hidden sm:table-cell">
                             <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
                           </TableCell>
@@ -1194,7 +1167,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                                   {order.items && order.items.length > 0 ? (
                                     order.items.map((item, idx) => (
                                       <div
-                                        key={idx}
+                                        key={`${item.productId || item.name || idx}`}
                                         className="text-gray-700 block px-4 py-2 text-sm"
                                         role="menuitem"
                                         tabIndex="-1"
@@ -1275,7 +1248,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrders.map(order => {
+                    {filteredOrders.map((order, idx) => {
                       // calculate packing fee for this order (items + box + box-cutting + tracking)
                       const computedPackingFee = (() => {
                         const itemsFee = (order.items || []).reduce((sum, item) => {
@@ -1293,7 +1266,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       })();
                       const packingFee = (order.packingFee !== undefined && order.packingFee !== null && order.packingFee !== '') ? Number(order.packingFee) : computedPackingFee;
                       return (
-                      <TableRow key={order.id}>
+                      <TableRow key={order.id || `order-${idx}`}>
                         <TableCell className="hidden sm:table-cell">
                           <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
                         </TableCell>
@@ -1366,7 +1339,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrders.map(order => {
+                    {filteredOrders.map((order, idx) => {
                       // calculate packing fee for this order (items + box + box-cutting + tracking)
                       const packingFee = (() => {
                         const itemsFee = (order.items || []).reduce((sum, item) => {
@@ -1382,7 +1355,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                         return itemsFee + boxTotal;
                       })();
                       return (
-                      <TableRow key={order.id}>
+                      <TableRow key={order.id || `order-${idx}`}>
                         <TableCell className="hidden sm:table-cell">
                           <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
                         </TableCell>
@@ -1455,7 +1428,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrders.map(order => {
+                    {filteredOrders.map((order, idx) => {
                       // calculate packing fee for this order (items + box + box-cutting + tracking)
                       const computedPackingFee = (() => {
                         const itemsFee = (order.items || []).reduce((sum, item) => {
@@ -1473,7 +1446,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       })();
                       const packingFee = (order.packingFee !== undefined && order.packingFee !== null && order.packingFee !== '') ? Number(order.packingFee) : computedPackingFee;
                       return (
-                      <TableRow key={order.id}>
+                      <TableRow key={order.id || `order-${idx}`}>
                         <TableCell className="hidden sm:table-cell">
                           <input type="checkbox" checked={selectedOrderIds.includes(order.id)} onChange={() => toggleSelect(order.id)} />
                         </TableCell>
@@ -1537,8 +1510,8 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrders.map(order => (
-                      <TableRow key={order.id}>
+                    {filteredOrders.map((order, idx) => (
+                      <TableRow key={order.id || `order-${idx}`}>
                         <TableCell>{order.id}</TableCell>
                         <TableCell>{order.items.map(item => item.name).join(', ')}</TableCell>
                         <TableCell>{order.items.reduce((sum, item) => sum + item.quantity, 0)}</TableCell>
@@ -1814,7 +1787,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                 <div className="font-medium">Items</div>
                 <div className="text-gray-700">
                   {(selectedOrderForModal.items || []).map((it, idx) => (
-                    <div key={idx} className="flex justify-between">
+                    <div key={`${it.productId || it.name || idx}`} className="flex justify-between">
                       <div>{it.name}</div>
                       <div className="text-sm">x{it.quantity}</div>
                     </div>
@@ -1844,7 +1817,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                           const per = (comps.packing || 0) + (comps.transportation || 0) + (comps.warehousing || 0);
                           const lineTotal = per * (it.quantity || 0);
                           return (
-                            <tr key={idx} className="border-t">
+                            <tr key={`${it.productId || it.name || idx}`} className="border-t">
                               <td className="py-1">{it.name}</td>
                               <td className="py-1">{it.quantity}</td>
                               <td className="py-1 text-right">₹{(comps.packing || 0).toFixed(2)}</td>
@@ -1865,7 +1838,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                       const per = (comps.packing || 0) + (comps.transportation || 0) + (comps.warehousing || 0);
                       const lineTotal = per * (it.quantity || 0);
                       return (
-                        <div key={idx} className="border rounded p-2">
+                        <div key={`${it.productId || it.name || idx}`} className="border rounded p-2">
                           <div className="flex justify-between"><div className="font-medium">{it.name}</div><div>x{it.quantity}</div></div>
                           <div className="flex justify-between text-sm"><div>Packing</div><div>₹{(comps.packing || 0).toFixed(2)}</div></div>
                           <div className="flex justify-between text-sm"><div>Transport</div><div>₹{(comps.transportation || 0).toFixed(2)}</div></div>

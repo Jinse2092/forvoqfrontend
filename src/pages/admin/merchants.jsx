@@ -200,7 +200,7 @@ const AdminMerchants = () => {
     // Attempt to load from server first (MongoDB). If not available, keep local tpl fallback.
     (async function tryLoadFromServer() {
       try {
-        const res = await fetch(`https://api.forvoq.com/api/merchants/${merchant.id}/shipping-template`);
+        const res = await fetch(`https://app.forvoq.com/api/merchants/${merchant.id}/shipping-template`);
           if (res.ok) {
           const body = await res.json();
           console.log('MERCHANT TEMPLATE LOAD: res.ok=', res.ok, 'body=', body);
@@ -235,7 +235,7 @@ const AdminMerchants = () => {
       const v = textarea.value || '';
       // try saving to backend (MongoDB)
       try {
-        const res = await fetch(`https://api.forvoq.com/api/merchants/${merchant.id}/shipping-template`, {
+        const res = await fetch(`https://app.forvoq.com/api/merchants/${merchant.id}/shipping-template`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ template: v })
         });
         console.log('save template response status =', res.status);

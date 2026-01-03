@@ -41,7 +41,7 @@ export const InventoryProvider = ({ children }) => {
   const fetchAllData = async () => {
     try {
       const endpoints = ['products', 'inventory', 'transactions', 'orders', 'inbounds', 'users', 'savedPickupLocations'];
-      const results = await Promise.all(endpoints.map(ep => fetch(`https://api.forvoq.com/api/${ep}`).then(res => {
+      const results = await Promise.all(endpoints.map(ep => fetch(`https://app.forvoq.com/api/${ep}`).then(res => {
         if (!res.ok) throw new Error(`Failed to fetch ${ep}`);
         return res.json();
       })));
@@ -228,7 +228,7 @@ export const InventoryProvider = ({ children }) => {
     try {
       console.log(`Sending POST request to backend for type: ${type}`, item);
       console.log(`POST /api/${type} request body:`, JSON.stringify(item, null, 2));
-      const response = await fetch(`https://api.forvoq.com/api/${type}`, {
+      const response = await fetch(`https://app.forvoq.com/api/${type}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(item),
@@ -253,7 +253,7 @@ export const InventoryProvider = ({ children }) => {
   // --- Authentication Simulation ---
   const login = async (email, password) => {
     try {
-      const response = await fetch('https://api.forvoq.com/login', {
+      const response = await fetch('https://app.forvoq.com/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -290,7 +290,7 @@ export const InventoryProvider = ({ children }) => {
       ...companyDetails
     };
     try {
-      const response = await fetch('https://api.forvoq.com/api/users', {
+      const response = await fetch('https://app.forvoq.com/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newUser),
@@ -328,7 +328,7 @@ export const InventoryProvider = ({ children }) => {
 
   const updateProduct = async (id, updatedProduct) => {
     try {
-      const response = await fetch(`https://api.forvoq.com/api/products/${id}`, {
+      const response = await fetch(`https://app.forvoq.com/api/products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...updatedProduct, id }),
@@ -351,7 +351,7 @@ export const InventoryProvider = ({ children }) => {
        return;
     }
     try {
-    const response = await fetch(`https://api.forvoq.com/api/products/${id}`, { method: 'DELETE' });
+    const response = await fetch(`https://app.forvoq.com/api/products/${id}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('Failed to delete product');
       setProducts(prev => prev.filter(p => p.id !== id));
       setInventory(prev => prev.filter(i => i.productId !== id));
@@ -368,8 +368,16 @@ export const InventoryProvider = ({ children }) => {
   // --- Inventory CRUD ---
    const addInventoryItem = async (item) => {
      // Treat inventory batches with different expiryDate as distinct records.
-     const expiryKey = item.expiryDate ? String(item.expiryDate) : null;
-     const existingItem = inventory.find(i => i.productId === item.productId && i.merchantId === item.merchantId && (i.expiryDate ? String(i.expiryDate) === expiryKey : !expiryKey));
+    // Differentiate batches by both expiryDate and sourceInboundDate so that
+    // identical product+expiry but different inbound dates are separate batches.
+    const expiryKey = item.expiryDate ? String(item.expiryDate) : null;
+    const inboundKey = item.sourceInboundDate ? String(item.sourceInboundDate) : null;
+    const existingItem = inventory.find(i =>
+      i.productId === item.productId &&
+      i.merchantId === item.merchantId &&
+      (i.expiryDate ? String(i.expiryDate) === expiryKey : !expiryKey) &&
+      (i.sourceInboundDate ? String(i.sourceInboundDate) === inboundKey : !inboundKey)
+    );
      if (existingItem) {
        await updateInventoryItem(existingItem.id, { quantity: Number(existingItem.quantity || 0) + Number(item.quantity || 0) });
      } else {
@@ -385,10 +393,15 @@ export const InventoryProvider = ({ children }) => {
 
    const removeInventoryItemQuantity = async (item) => {
      // If expiryDate is provided, prefer matching batch; otherwise fallback to any batch
-     let existingItem = null;
-     if (item.expiryDate) {
-       existingItem = inventory.find(i => i.productId === item.productId && i.merchantId === item.merchantId && i.expiryDate === item.expiryDate);
-     }
+    let existingItem = null;
+    // Prefer exact match on expiryDate AND sourceInboundDate when provided
+    if (item.expiryDate && item.sourceInboundDate) {
+      existingItem = inventory.find(i => i.productId === item.productId && i.merchantId === item.merchantId && i.expiryDate === item.expiryDate && i.sourceInboundDate === item.sourceInboundDate);
+    }
+    // If not found, fallback to matching by expiryDate only (any inbound date)
+    if (!existingItem && item.expiryDate) {
+      existingItem = inventory.find(i => i.productId === item.productId && i.merchantId === item.merchantId && i.expiryDate === item.expiryDate);
+    }
      if (!existingItem) {
        existingItem = inventory.find(i => i.productId === item.productId && i.merchantId === item.merchantId);
      }
@@ -408,7 +421,7 @@ export const InventoryProvider = ({ children }) => {
 
    const updateInventoryItem = async (id, updatedItem) => {
      try {
-      const response = await fetch(`https://api.forvoq.com/api/inventory/${id}`, {
+      const response = await fetch(`https://app.forvoq.com/api/inventory/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...updatedItem, id }),
@@ -430,7 +443,7 @@ export const InventoryProvider = ({ children }) => {
         return;
      }
      try {
-      const response = await fetch(`https://api.forvoq.com/api/inventory/${id}`, { method: 'DELETE' });
+      const response = await fetch(`https://app.forvoq.com/api/inventory/${id}`, { method: 'DELETE' });
        if (!response.ok) throw new Error('Failed to delete inventory item');
        setInventory(prev => prev.filter(i => i.id !== id));
        toast({ title: "Inventory Item Deleted", description: `${products.find(p => p.id === item.productId)?.name || 'Item'} inventory record removed.`, variant: "destructive" });
@@ -439,6 +452,61 @@ export const InventoryProvider = ({ children }) => {
        toast({ title: "Error", description: "Failed to delete inventory item.", variant: "destructive" });
      }
    };
+
+  // Merge duplicate inventory batches that share productId, merchantId,
+  // expiryDate and sourceInboundDate by summing their quantities into a
+  // single master document and removing duplicates. Useful when multiple
+  // inbound processing created separate records for the same batch.
+  const mergeDuplicateInventoryBatches = async (merchantId) => {
+    try {
+      // Filter inventory for this merchant (use state snapshot)
+      const inv = (inventory || []).filter(i => !merchantId || i.merchantId === merchantId);
+      const groups = {};
+      for (const it of inv) {
+        const key = `${it.productId}||${it.merchantId}||${String(it.expiryDate || '')}||${String(it.sourceInboundDate || it.createdAt || '')}`;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(it);
+      }
+
+      const ops = [];
+      for (const key of Object.keys(groups)) {
+        const items = groups[key];
+        if (items.length <= 1) continue;
+        // Consolidate into first item
+        const master = items[0];
+        const totalQty = items.reduce((s, x) => s + Number(x.quantity || 0), 0);
+        // If master needs updating, do a direct PUT to avoid multiple fetchAllData calls
+        ops.push((async () => {
+          try {
+            if (Number(master.quantity || 0) !== totalQty) {
+              await fetch(`https://app.forvoq.com/api/inventory/${master.id}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...master, id: master.id, quantity: totalQty })
+              });
+            }
+            // Delete all other duplicates
+            for (const dup of items.slice(1)) {
+              try {
+                await fetch(`https://app.forvoq.com/api/inventory/${dup.id}`, { method: 'DELETE' });
+              } catch (e) {
+                console.warn('Failed to delete duplicate inventory', dup.id, e);
+              }
+            }
+          } catch (e) {
+            console.error('mergeDuplicateInventoryBatches op failed for key', key, e);
+          }
+        })());
+      }
+
+      if (ops.length > 0) await Promise.all(ops);
+      // Refresh full data after merge
+      await fetchAllData();
+      toast({ title: 'Inventory Consolidated', description: 'Merged duplicate inbound batches where applicable.' });
+    } catch (err) {
+      console.error('mergeDuplicateInventoryBatches error', err);
+      // non-fatal
+    }
+  };
 
   // --- Transaction Handling ---
   const addTransaction = async (transaction) => {
@@ -492,13 +560,16 @@ export const InventoryProvider = ({ children }) => {
 
   const addOrder = async (order) => {
     const price = calculateOrderPrice(order.items || []);
-    const newOrder = { ...order, id: `ord-${Date.now()}`, merchantId: order.merchantId || currentUser?.id, status: 'pending', date: new Date().toISOString().split('T')[0], price };
-    console.log('addOrder - newOrder object being sent:', JSON.stringify(newOrder, null, 2));
+    const merchantId = order.merchantId || currentUser?.id;
+
+    // Create order without performing any inventory allocation or checks.
+    // Allocation and inventory decrement will occur when admin marks the order as packed.
+    const newOrder = { ...order, id: `ord-${Date.now()}`, merchantId, status: 'pending', date: new Date().toISOString().split('T')[0], price };
     const savedOrder = await addDataToBackend('orders', newOrder, setOrders);
-    if (savedOrder) {
-      toast({ title: "Order Added", description: `Order ${savedOrder.id} created and is pending.` });
-      await fetchAllData();
-    }
+    if (!savedOrder) return;
+
+    toast({ title: "Order Added", description: `Order ${savedOrder.id} created and is pending.` });
+    await fetchAllData();
   };
 
   // Add return order with RTO or Damaged option
@@ -547,7 +618,7 @@ export const InventoryProvider = ({ children }) => {
       if (payload.packingFee !== undefined) payload.packingFee = Number(payload.packingFee);
       if (payload.boxCutting !== undefined) payload.boxCutting = Boolean(payload.boxCutting);
 
-      const response = await fetch(`https://api.forvoq.com/api/orders/${orderId}`, {
+      const response = await fetch(`https://app.forvoq.com/api/orders/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -562,7 +633,7 @@ export const InventoryProvider = ({ children }) => {
       // Ensure we fetch a fresh authoritative copy from server to verify persistence.
       // The server exposes a debug GET at /api/orders-debug/:id (there is no GET /api/orders/:id).
       try {
-        const debugResp = await fetch(`https://api.forvoq.com/api/orders-debug/${orderId}`);
+        const debugResp = await fetch(`https://app.forvoq.com/api/orders-debug/${orderId}`);
         if (debugResp.ok) {
           const debugJson = await debugResp.json();
           const freshOrder = debugJson && (debugJson.order || debugJson);
@@ -595,7 +666,7 @@ export const InventoryProvider = ({ children }) => {
     try {
       const headers = {};
       if (currentUser?.token) headers['Authorization'] = `Bearer ${currentUser.token}`;
-      const response = await fetch(`https://api.forvoq.com/api/orders/${orderId}`, { method: 'DELETE', headers });
+      const response = await fetch(`https://app.forvoq.com/api/orders/${orderId}`, { method: 'DELETE', headers });
       if (response.status === 401) {
         toast({ title: 'Unauthorized', description: 'Please login to perform this action.', variant: 'destructive' });
         return;
@@ -717,11 +788,70 @@ export const InventoryProvider = ({ children }) => {
     }
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
-
-    // Delegate allocation and decrementing to server to avoid double-decrement bugs.
+    // Prevent marking packed when client-side computed available (non-expired) stock is zero.
     try {
-      const payload = { id: orderId, status: 'packed', packedAt: new Date().toISOString() };
-      const resp = await fetch(`https://api.forvoq.com/api/orders/${orderId}`, {
+      if (Array.isArray(order.items) && order.items.length > 0) {
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const dayMs = 24 * 60 * 60 * 1000;
+        for (const it of order.items) {
+          const need = Number(it.quantity || 0);
+
+          // compute available across inventory batches that are NOT considered 'expired'
+          const batchQty = (Array.isArray(inventory) ? inventory : [])
+            .filter(inv => inv && inv.productId === it.productId && inv.merchantId === order.merchantId)
+            .filter(inv => {
+              if (!inv) return false;
+              if (inv.expiryDate) {
+                const be = new Date(inv.expiryDate);
+                if (isNaN(be.getTime())) return true; // treat invalid expiry as non-expired
+                // exclude only batches whose expiry date is before today
+                if (be.setHours(0,0,0,0) < startOfToday.getTime()) return false;
+              }
+              return true;
+            })
+            .reduce((s, x) => s + (Number(x.quantity || 0)), 0);
+
+          // subtract quantities already reserved/ordered by other non-pending orders
+          let reserved = 0;
+          for (const o of (Array.isArray(orders) ? orders : [])) {
+            if (!o) continue;
+            if (String(o.id) === String(order.id)) continue;
+            if (o.status === 'pending' || o.status === 'return') continue;
+            // prefer explicit packingDetails when present
+            if (Array.isArray(o.packingDetails) && o.packingDetails.length > 0) {
+              for (const pd of o.packingDetails) {
+                if (!pd) continue;
+                if (String(pd.productId) === String(it.productId)) {
+                  for (const a of pd.allocations || []) reserved += Number(a.used || 0);
+                }
+              }
+            } else if (Array.isArray(o.items)) {
+              for (const oi of o.items) {
+                if (!oi) continue;
+                if (String(oi.productId) === String(it.productId) && o.merchantId === order.merchantId) reserved += Number(oi.quantity || 0);
+              }
+            }
+          }
+
+          const available = Number(batchQty || 0) - Number(reserved || 0);
+          // debug: log per-item availability
+          try {
+            const prodName = products.find(p => p.id === it.productId)?.name || it.name || it.productId || 'product';
+            console.debug('markOrderPacked availability', { orderId, productId: it.productId, prodName, batchQty, reserved, available });
+          } catch (e) { /* ignore */ }
+          if (available <= 0) {
+            const prodName = products.find(p => p.id === it.productId)?.name || it.name || it.productId || 'product';
+            toast({ title: 'Out of Stock', description: `${prodName} available=${available}. Cannot mark order ${orderId} as packed. Check console logs for details.`, variant: 'destructive' });
+            return;
+          }
+        }
+      }
+
+      // Delegate allocation and decrementing to server to avoid double-decrement bugs.
+      const packedBy = currentUser?.companyName || currentUser?.name || currentUser?.id || '';
+      const payload = { id: orderId, status: 'packed', packedAt: new Date().toISOString(), packedBy };
+      const resp = await fetch(`https://app.forvoq.com/api/orders/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -786,12 +916,13 @@ export const InventoryProvider = ({ children }) => {
        id: `inb-${Date.now()}`,
        merchantId: currentUser?.id,
        status: 'pending',
-       date: new Date().toISOString().split('T')[0],
+      date: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString(),
        totalWeightKg: totalWeightKg,
        fee: fee
      };
      try {
-      const response = await fetch('https://api.forvoq.com/api/inbounds', {
+      const response = await fetch('https://app.forvoq.com/api/inbounds', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify(newInbound),
@@ -819,7 +950,7 @@ export const InventoryProvider = ({ children }) => {
      const updatedInbound = { ...inbound, status: 'completed', receivedDate: new Date().toISOString().split('T')[0] };
 
      try {
-      const response = await fetch(`https://api.forvoq.com/api/inbounds/${inboundId}`, {
+      const response = await fetch(`https://app.forvoq.com/api/inbounds/${inboundId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedInbound),
@@ -844,6 +975,14 @@ export const InventoryProvider = ({ children }) => {
              maxStockLevel: 0,
            });
          });
+        // After adding inventory items, consolidate any duplicate batches
+        // that may have been created separately but represent the same
+        // product+expiry+inbound-date combination.
+        try {
+          await mergeDuplicateInventoryBatches(savedInbound.merchantId);
+        } catch (e) {
+          console.warn('mergeDuplicateInventoryBatches failed', e);
+        }
 
         // Fee transactions removed: no inbound fee recorded
         toast({ title: "Inbound Received", description: `Inbound ${inboundId} marked as completed and inventory updated.` });
@@ -901,7 +1040,7 @@ export const InventoryProvider = ({ children }) => {
         ...adminDetails
       };
       try {
-      const response = await fetch('https://api.forvoq.com/api/users', {
+      const response = await fetch('https://app.forvoq.com/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newAdmin),
@@ -934,7 +1073,7 @@ export const InventoryProvider = ({ children }) => {
       }
 
       try {
-      const response = await fetch(`https://api.forvoq.com/api/users/${userId}`, { method: 'DELETE' });
+      const response = await fetch(`https://app.forvoq.com/api/users/${userId}`, { method: 'DELETE' });
         if (!response.ok) {
           toast({ title: "User Removal Failed", description: "Failed to remove user from server.", variant: "destructive" });
           return;
@@ -960,7 +1099,7 @@ export const InventoryProvider = ({ children }) => {
   const addPickupLocation = async (location) => {
     const newLocation = { id: `loc-${Date.now()}`, ...location };
     try {
-      const response = await fetch('https://api.forvoq.com/api/savedPickupLocations', {
+      const response = await fetch('https://app.forvoq.com/api/savedPickupLocations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newLocation),
@@ -975,7 +1114,7 @@ export const InventoryProvider = ({ children }) => {
 
   const updatePickupLocation = async (id, updatedLocation) => {
     try {
-      const response = await fetch(`https://api.forvoq.com/api/savedPickupLocations/${id}`, {
+      const response = await fetch(`https://app.forvoq.com/api/savedPickupLocations/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedLocation),
@@ -990,7 +1129,7 @@ export const InventoryProvider = ({ children }) => {
 
   const deletePickupLocation = async (id) => {
     try {
-      const response = await fetch(`https://api.forvoq.com/api/savedPickupLocations/${id}`, {
+      const response = await fetch(`https://app.forvoq.com/api/savedPickupLocations/${id}`, {
         method: 'DELETE',
       });
       if (!response.ok) throw new Error('Failed to delete pickup location');
