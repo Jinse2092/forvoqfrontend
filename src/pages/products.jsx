@@ -23,6 +23,7 @@ const Products = () => {
   
   const [formData, setFormData] = useState({
     name: '',
+    sku: '',
     skus: [''],
     barcodeId: '',
     category: '',
@@ -52,10 +53,20 @@ const Products = () => {
       setFormData(prev => {
         const skus = [...prev.skus];
         skus[idx] = value;
-        return { ...prev, skus };
+        // keep primary sku in sync
+        const sku = idx === 0 ? value : prev.sku;
+        return { ...prev, skus, sku };
       });
     } else {
-      setFormData(prev => ({ ...prev, [name]: value === undefined || value === null ? '' : value }));
+      setFormData(prev => {
+        // if editing primary sku field, sync skus[0]
+        if (name === 'sku') {
+          const skus = [...prev.skus];
+          skus[0] = value;
+          return { ...prev, sku: value === undefined || value === null ? '' : value, skus };
+        }
+        return { ...prev, [name]: value === undefined || value === null ? '' : value };
+      });
     }
   };
 
@@ -87,7 +98,7 @@ const Products = () => {
       outboundPrice: formData.outboundPrice === '' ? 0 : parseFloat(formData.outboundPrice),
     };
     // Backwards-compatibility: keep single `sku` field for consumers expecting `product.sku`
-    productData.sku = (productData.skus && productData.skus.length > 0) ? productData.skus[0] : '';
+    productData.sku = formData.sku && formData.sku.trim() ? formData.sku.trim() : ((productData.skus && productData.skus.length > 0) ? productData.skus[0] : '');
     if (currentProduct) {
       updateProduct(currentProduct.id, productData);
     } else {
@@ -100,6 +111,7 @@ const Products = () => {
     setCurrentProduct(product);
     if (product) {
       setFormData({
+        sku: product.sku ?? (Array.isArray(product.skus) && product.skus.length ? product.skus[0] : ''),
         name: product.name ?? '',
         skus: Array.isArray(product.skus) ? product.skus : [product.sku ?? ''],
         barcodeId: product.barcodeId ?? '',
@@ -120,7 +132,7 @@ const Products = () => {
         packingPrice: product.packingPrice !== undefined && product.packingPrice !== null ? product.packingPrice.toString() : ''
       });
     } else {
-      setFormData({ name: '', skus: [''], barcodeId: '', category: '', price: '', cost: '', description: '', imageUrl: '', weightKg: '', transportationFee: '', itemPackingFee: '', warehousingRatePerKg: '', lengthCm: '', breadthCm: '', heightCm: '', inboundPrice: '', outboundPrice: '', packingPrice: '' });
+      setFormData({ sku: '', name: '', skus: [''], barcodeId: '', category: '', price: '', cost: '', description: '', imageUrl: '', weightKg: '', transportationFee: '', itemPackingFee: '', warehousingRatePerKg: '', lengthCm: '', breadthCm: '', heightCm: '', inboundPrice: '', outboundPrice: '', packingPrice: '' });
     }
     setIsModalOpen(true);
   };
@@ -233,6 +245,10 @@ const Products = () => {
                   <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4 w-full">
                     <Label htmlFor="name" className="text-right sm:text-left">Name</Label>
                     <Input id="name" name="name" value={formData.name} onChange={handleInputChange} className="col-span-3 sm:col-span-1 w-full" required />
+                  </div>
+                  <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4 w-full">
+                    <Label htmlFor="sku" className="text-right sm:text-left">SKU (primary)</Label>
+                    <Input id="sku" name="sku" value={formData.sku} onChange={handleInputChange} className="col-span-3 sm:col-span-1 w-full" placeholder="Primary SKU for this product" />
                   </div>
                   <div className="grid grid-cols-4 sm:grid-cols-1 items-center gap-4 w-full">
                     <Label className="text-right sm:text-left">SKUs</Label>

@@ -24,6 +24,7 @@ import AdminMerchantPayments from './pages/admin/merchant-payments.jsx';
 import AdminReturns from './pages/admin/returns.jsx';
 import AdminSettings from './pages/admin/settings.jsx';
 import Webhooks from './pages/admin/webhooks.jsx';
+import ForvoqCourierAdmin from './pages/admin/forvoq-courier.jsx';
 import { InventoryProvider, useInventory } from './context/inventory-context.jsx';
 
 // Simulated Auth Guard
@@ -72,6 +73,7 @@ function App() {
                       <Route path="/admin/merchant/:id" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminMerchantManagement /></ProtectedRoute>} />
                       <Route path="/admin/orders" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminOrders /></ProtectedRoute>} />
                       <Route path="/admin/inbounds" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminInbounds /></ProtectedRoute>} />
+                      <Route path="/admin/forvoq-courier" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><ForvoqCourierAdmin /></ProtectedRoute>} />
                       <Route path="/admin/payments" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminPayments /></ProtectedRoute>} />
                       <Route path="/admin/merchant-payments/:id" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminMerchantPayments /></ProtectedRoute>} />
                       <Route path="/admin/returns" element={<ProtectedRoute allowedRoles={['admin', 'superadmin']}><AdminReturns /></ProtectedRoute>} />

@@ -37,6 +37,17 @@ export const InventoryProvider = ({ children }) => {
     }
   }, [currentUser]);
 
+  // Helper: determine whether an order should be considered non-pending
+  // Treat orders with status not 'pending'/'return' as non-pending, and
+  // also include orders marked `shopifyFulfilled === true` (Shopify flow).
+  const isNonPendingOrder = (o) => {
+    if (!o) return false;
+    const st = String(o.status || '').toLowerCase();
+    if (st && st !== 'pending' && st !== 'return') return true;
+    if (o.shopifyFulfilled === true) return true;
+    return false;
+  };
+
   // Fetch all data from backend API on mount
   const fetchAllData = async () => {
     try {
@@ -70,7 +81,7 @@ export const InventoryProvider = ({ children }) => {
       console.log('Orders with city and state:', ordersWithCityState);
 
       // Compute packedQuantity per inventory item from all orders whose status is NOT 'pending' or 'return'
-      const nonPendingOrders = ordersWithCityState.filter(o => o.status && o.status !== 'pending' && o.status !== 'return');
+      const nonPendingOrders = ordersWithCityState.filter(isNonPendingOrder);
       const rawInventory = results[1] || [];
 
       // Compute packedQuantity per inventory batch using orders' packingDetails when available
@@ -177,7 +188,7 @@ export const InventoryProvider = ({ children }) => {
     // expiry matching). This avoids mutating inventory records when orders
     // are created or deleted.
     let orderedQty = 0;
-    const relevantOrders = orders.filter(o => o.status && o.status !== 'pending' && o.status !== 'return');
+    const relevantOrders = orders.filter(isNonPendingOrder);
     for (const ord of relevantOrders) {
       // If server provided explicit packingDetails, prefer that authoritative mapping
       if (Array.isArray(ord.packingDetails) && ord.packingDetails.length > 0) {
@@ -963,28 +974,17 @@ export const InventoryProvider = ({ children }) => {
        setInbounds(prev => prev.map(i => i.id === inboundId ? savedInbound : i));
 
        if (savedInbound.type === 'inbound') {
-         savedInbound.items.forEach(item => {
-           addInventoryItem({
-             merchantId: savedInbound.merchantId,
-             productId: item.productId,
-             quantity: item.quantity,
-             expiryDate: item.expiryDate || null,
-             sourceInboundDate: savedInbound.receivedDate || savedInbound.date || new Date().toISOString().slice(0,10),
-             location: 'Default Warehouse',
-             minStockLevel: 0,
-             maxStockLevel: 0,
-           });
-         });
-        // After adding inventory items, consolidate any duplicate batches
-        // that may have been created separately but represent the same
-        // product+expiry+inbound-date combination.
+        // Server creates inventory records when an inbound is marked completed.
+        // Avoid creating inventory client-side to prevent duplicate batches.
         try {
+          // Refresh all data so frontend reflects server-created inventory
+          await fetchAllData();
+          // Run consolidation to merge any accidental duplicates
           await mergeDuplicateInventoryBatches(savedInbound.merchantId);
         } catch (e) {
-          console.warn('mergeDuplicateInventoryBatches failed', e);
+          console.warn('receiveInbound post-process failed', e);
         }
 
-        // Fee transactions removed: no inbound fee recorded
         toast({ title: "Inbound Received", description: `Inbound ${inboundId} marked as completed and inventory updated.` });
        } else if (savedInbound.type === 'outbound') {
          let inventoryUpdated = true;
@@ -1107,8 +1107,10 @@ export const InventoryProvider = ({ children }) => {
       if (!response.ok) throw new Error('Failed to add pickup location');
       const savedLocation = await response.json();
       setSavedPickupLocations(prev => [savedLocation, ...prev]);
+      return savedLocation;
     } catch (error) {
       toast({ title: "Error", description: "Failed to save pickup location to server.", variant: "destructive" });
+      return null;
     }
   };
 

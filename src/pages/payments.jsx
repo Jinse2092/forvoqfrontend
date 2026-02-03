@@ -27,7 +27,6 @@ const PaymentsPanel = () => {
     const t = new Date();
     return t.toISOString().slice(0,7); // YYYY-MM
   });
-  const [showDebug, setShowDebug] = useState(false);
 
   // Map of orderId -> packingFee document
   const [packingFeesMap, setPackingFeesMap] = useState({});
@@ -278,13 +277,7 @@ const PaymentsPanel = () => {
       'Order ID': row.orderId || row.id || '',
       'Customer Name': row.customerName || 'Unknown',
       Items: row.items || '-',
-      'Total Packing Fees (₹)': row.amount != null ? Number(row.amount).toFixed(2) : '0.00',
-      'Transportation (₹)': Number(row.transportationTotal || 0).toFixed(2),
-      'Warehousing (₹)': Number(row.warehousingTotal || 0).toFixed(2),
-      'Itemwise Packing (₹)': Number(row.itemPackingTotal || 0).toFixed(2),
-      'Box Fee (₹)': Number(row.boxFee || 0).toFixed(2),
-      'Box Cutting (₹)': Number(row.boxCuttingCharge || 0).toFixed(2),
-      'Tracking Fee (₹)': Number(row.trackingFee || 0).toFixed(2)
+      'Total Packing Fees (₹)': row.amount != null ? Number(row.amount).toFixed(2) : '0.00'
     }));
     const worksheet = XLSX.utils.json_to_sheet(worksheetData);
     const workbook = XLSX.utils.book_new();
@@ -371,12 +364,6 @@ const PaymentsPanel = () => {
               >
                 Download Excel
               </button>
-              <button
-                onClick={() => setShowDebug(s => !s)}
-                className={`px-3 py-2 border rounded ${showDebug ? 'bg-yellow-200' : 'bg-white'}`}
-              >
-                {showDebug ? 'Hide Debug' : 'Show Debug'}
-              </button>
               <div className="ml-4 text-sm text-gray-700">
                 <div>Month Total: <span className="font-semibold">₹{monthlyComponentTotals.totalPacking.toFixed(2)}</span></div>
                 <div>Month Pending: <span className="font-semibold">₹{monthlyPending.toFixed(2)}</span></div>
@@ -392,16 +379,6 @@ const PaymentsPanel = () => {
                 <TableHead>Customer Name</TableHead>
                 <TableHead>Items</TableHead>
                 <TableHead>Total Packing Fees (₹)</TableHead>
-                {showDebug && (
-                  <>
-                    <TableHead>Transportation (₹)</TableHead>
-                    <TableHead>Warehousing (₹)</TableHead>
-                    <TableHead>Itemwise Packing (₹)</TableHead>
-                    <TableHead>Box Fee (₹)</TableHead>
-                    <TableHead>Box Cutting (₹)</TableHead>
-                    <TableHead>Tracking Fee (₹)</TableHead>
-                  </>
-                )}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -417,16 +394,6 @@ const PaymentsPanel = () => {
                     <TableCell>{row.customerName || '-'}</TableCell>
                     <TableCell className="max-w-xs truncate">{row.items || '-'}</TableCell>
                     <TableCell>{row.amount != null ? Number(row.amount).toFixed(2) : '0.00'}</TableCell>
-                    {showDebug && (
-                      <>
-                        <TableCell>{Number(row.transportationTotal || 0).toFixed(2)}</TableCell>
-                        <TableCell>{Number(row.warehousingTotal || 0).toFixed(2)}</TableCell>
-                        <TableCell>{Number(row.itemPackingTotal || 0).toFixed(2)}</TableCell>
-                        <TableCell>{Number(row.boxFee || 0).toFixed(2)}</TableCell>
-                        <TableCell>{Number(row.boxCuttingCharge || 0).toFixed(2)}</TableCell>
-                        <TableCell>{Number(row.trackingFee || 0).toFixed(2)}</TableCell>
-                      </>
-                    )}
                   </TableRow>
                 ))
               )}

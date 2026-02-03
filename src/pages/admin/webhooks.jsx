@@ -112,11 +112,15 @@ const Webhooks = () => {
   const [merchantId, setMerchantId] = useState(currentUser?.id || '');
   const [editingId, setEditingId] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [pincodes, setPincodes] = useState('');
+  const [locations, setLocations] = useState('');
+  const [statesFilter, setStatesFilter] = useState('');
 
   const resetForm = () => {
     setAddress(''); setFormat('json'); setShopifyDomain(''); setSignature('');
     setMerchantId(currentUser?.id || '');
     setEditingId(null);
+    setPincodes(''); setLocations(''); setStatesFilter('');
   };
 
   const handleSubmit = async (e) => {
@@ -125,7 +129,13 @@ const Webhooks = () => {
     setCreating(true);
     try {
       const mId = merchantId || currentUser?.id;
-      const payload = { topic: 'orders/create', address, format, shopifyDomain, signature, merchantId: mId };
+      const filtersObj = {
+        pincodes: (pincodes || '').split(',').map(s => s.trim()).filter(Boolean),
+        locations: (locations || '').split(',').map(s => s.trim()).filter(Boolean),
+        states: (statesFilter || '').split(',').map(s => s.trim()).filter(Boolean),
+      };
+
+      const payload = { topic: 'orders/create', address, format, shopifyDomain, signature, merchantId: mId, filters: filtersObj };
         if (editingId) {
         // update existing; admins call global endpoint, merchants call merchant-scoped
         const url = isAdmin ? `/api/webhooks/${editingId}` : (mId ? `/api/merchants/${mId}/webhooks/${editingId}` : `/api/webhooks/${editingId}`);
@@ -177,6 +187,11 @@ const Webhooks = () => {
     setShopifyDomain(w.shopifyDomain || '');
     setSignature(w.signature || '');
     setMerchantId(w.merchantId || currentUser?.id || '');
+    // populate filter fields if present
+    const f = w.filters || w;
+    setPincodes(Array.isArray(f.pincodes) ? f.pincodes.join(',') : (f.pincodes || ''));
+    setLocations(Array.isArray(f.locations) ? f.locations.join(',') : (f.locations || ''));
+    setStatesFilter(Array.isArray(f.states) ? f.states.join(',') : (f.states || ''));
     setCreateOpen(true);
   };
 
@@ -245,6 +260,21 @@ const Webhooks = () => {
                         </Select>
                       )}
                     </div>
+                    <div>
+                      <Label>Filters — Pincodes (comma separated)</Label>
+                      <Input value={pincodes} onChange={(e) => setPincodes(e.target.value)} placeholder="560001,560002" />
+                      <p className="text-xs text-muted-foreground mt-1">Optional: only forward orders whose shipping pincode matches one of these.</p>
+                    </div>
+                    <div>
+                      <Label>Filters — Locations (comma separated)</Label>
+                      <Input value={locations} onChange={(e) => setLocations(e.target.value)} placeholder="Warehouse A,Store 1" />
+                      <p className="text-xs text-muted-foreground mt-1">Optional: match city/address substrings (case-insensitive).</p>
+                    </div>
+                    <div>
+                      <Label>Filters — States (comma separated)</Label>
+                      <Input value={statesFilter} onChange={(e) => setStatesFilter(e.target.value)} placeholder="Karnataka,Maharashtra" />
+                      <p className="text-xs text-muted-foreground mt-1">Optional: only forward orders from these states/provinces.</p>
+                    </div>
                     <div className="flex justify-end gap-2 pt-2">
                       <Button variant="secondary" type="button" onClick={() => { setCreateOpen(false); resetForm(); }}>Cancel</Button>
                       <Button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create'}</Button>
@@ -262,6 +292,7 @@ const Webhooks = () => {
                 <TableHead>Merchant</TableHead>
                 <TableHead>Domain</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Filters</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -282,6 +313,16 @@ const Webhooks = () => {
                   <TableCell>{users.find(u => u.id === w.merchantId)?.companyName || w.merchantId || '—'}</TableCell>
                   <TableCell className="truncate max-w-xs">{w.shopifyDomain || '—'}</TableCell>
                   <TableCell>{w.active ? 'active' : 'inactive'}</TableCell>
+                  <TableCell className="truncate max-w-xs">
+                    {(() => {
+                      const f = w.filters || {};
+                      const parts = [];
+                      if (Array.isArray(f.pincodes) && f.pincodes.length) parts.push(`pincodes: ${f.pincodes.join(', ')}`);
+                      if (Array.isArray(f.locations) && f.locations.length) parts.push(`locations: ${f.locations.join(', ')}`);
+                      if (Array.isArray(f.states) && f.states.length) parts.push(`states: ${f.states.join(', ')}`);
+                      return parts.length ? parts.join(' | ') : '—';
+                    })()}
+                  </TableCell>
                   <TableCell>
                     <div className="flex gap-2">
                       <Button variant="ghost" size="icon" title="Edit" onClick={() => handleEdit(w)}>

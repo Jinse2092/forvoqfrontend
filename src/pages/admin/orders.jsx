@@ -11,7 +11,7 @@ import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '.
 import { Card, CardContent, CardHeader } from '../../components/ui/card.jsx';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table.jsx';
 import { AnimatePresence, motion } from 'framer-motion';
-import { generateShippingLabelPDF } from '../../lib/pdfGenerator.js';
+import { generateShippingLabelPDF, generateManifestPDF } from '../../lib/pdfGenerator.js';
 import { calculateVolumetricWeight, calculateDispatchFee } from '../../lib/utils.js';
 import { StatusTimelineDropdown } from '../../components/StatusTimelineDropdown.jsx';
 
@@ -205,6 +205,7 @@ const AdminOrders = () => {
 
   // New states for tracking codes and order details
   const [trackingCodes, setTrackingCodes] = useState({});
+  const [selectedDeliveryPartners, setSelectedDeliveryPartners] = useState({});
   const [isOrderDetailsDialogOpen, setIsOrderDetailsDialogOpen] = useState(false);
   const [orderDetails, setOrderDetails] = useState(null);
   // Item scanning session for barcode-verified packing
@@ -246,17 +247,22 @@ const AdminOrders = () => {
     const name = pd.name || orderItem.name || prod.name || 'Item';
     const quantity = Number(pd.quantity || orderItem.quantity || 1) || 1;
 
-    // If server already provided per-item components, prefer them
-    const hasServerComponents = (pd.itemPackingPerItem !== undefined) || (pd.transportationPerItem !== undefined) || (pd.warehousingPerItem !== undefined);
-    if (hasServerComponents) {
-      const itemPackingPerItem = Number(pd.itemPackingPerItem || 0);
-      const transportationPerItem = Number(pd.transportationPerItem || 0);
-      const warehousingPerItem = Number(pd.warehousingPerItem || 0);
-      const lineTotal = Number(pd.lineTotal !== undefined ? pd.lineTotal : ((itemPackingPerItem + transportationPerItem + warehousingPerItem) * quantity).toFixed(2));
+    // Prefer server-provided per-item components when available (PackingFee / packingDetails)
+    // Backend schema uses `itemPackingPerItem`, `transportationPerItem`, `warehousingPerItem`, `lineTotal`
+    const serverPacking = pd.itemPackingPerItem !== undefined ? Number(pd.itemPackingPerItem) : undefined;
+    const serverTransportation = pd.transportationPerItem !== undefined ? Number(pd.transportationPerItem) : undefined;
+    const serverWarehousing = pd.warehousingPerItem !== undefined ? Number(pd.warehousingPerItem) : undefined;
+    const serverLineTotal = pd.lineTotal !== undefined ? Number(pd.lineTotal) : undefined;
+
+    if (serverPacking !== undefined || serverTransportation !== undefined || serverWarehousing !== undefined || serverLineTotal !== undefined) {
+      const itemPackingPerItem = Number((serverPacking || 0).toFixed(2));
+      const transportationPerItem = Number((serverTransportation || 0).toFixed(2));
+      const warehousingPerItem = Number((serverWarehousing || 0).toFixed(2));
+      const lineTotal = serverLineTotal !== undefined ? Number(serverLineTotal.toFixed(2)) : Number(((itemPackingPerItem + transportationPerItem + warehousingPerItem) * quantity).toFixed(2));
       return { name, quantity, itemPackingPerItem, transportationPerItem, warehousingPerItem, lineTotal };
     }
 
-    // Otherwise compute from product metadata
+    // Fallback: compute components from product metadata
     const comps = calculatePerItemComponents(prod);
     const itemPackingPerItem = Number((comps.packing || 0).toFixed(2));
     const transportationPerItem = Number((comps.transportation || 0).toFixed(2));
@@ -449,7 +455,7 @@ const AdminOrders = () => {
                 totalPackingFee: Number(v),
                 boxFee: 0,
                 boxCutting: false,
-                trackingFee: 3,
+                trackingFee: 2,
                 totalWeightKg: undefined,
                 raw: v
               }];
@@ -457,11 +463,11 @@ const AdminOrders = () => {
             const boxFee = Number(v.boxFee ?? v.box_fee ?? 0) || 0;
             const boxCutting = (v.boxCutting ?? v.box_cutting ?? v.box_cut) ? true : false;
             const totalPackingFee = v.totalPackingFee !== undefined ? Number(v.totalPackingFee) : (v.total !== undefined ? Number(v.total) : undefined);
-            return [k, {
+              return [k, {
               totalPackingFee,
               boxFee,
               boxCutting,
-              trackingFee: Number(v.trackingFee ?? v.tracking_fee ?? 3),
+              trackingFee: Number(v.trackingFee ?? v.tracking_fee ?? 2),
               totalWeightKg: v.totalWeightKg !== undefined ? Number(v.totalWeightKg) : (v.total_weight_kg !== undefined ? Number(v.total_weight_kg) : undefined),
               items: v.items ?? v.products ?? v.map?.items ?? [],
               raw: v
@@ -1549,6 +1555,21 @@ const openMarkItemsDialog = (order) => {
     setSelectedOrderIds([]);
   };
 
+  const groupDownloadManifest = async () => {
+    if (selectedOrderIds.length === 0) return;
+    const toDownload = filteredOrders.filter(o => selectedOrderIds.includes(o.id));
+    // augment with merchant info
+    const entries = toDownload.map(o => ({ order: o, merchant: users.find(u => u.id === o.merchantId) || { companyName: '', id: '' } }));
+    try {
+      await generateManifestPDF(entries);
+      toast({ title: 'Success', description: `Generated manifest for ${entries.length} order(s).` });
+      setSelectedOrderIds([]);
+    } catch (err) {
+      console.error('Manifest generation failed', err);
+      toast({ title: 'Error', description: 'Failed to generate manifest PDF.', variant: 'destructive' });
+    }
+  };
+
   const groupMarkPacked = async () => {
     if (selectedOrderIds.length === 0) return;
 
@@ -1719,7 +1740,7 @@ const openMarkItemsDialog = (order) => {
         }
 
         // Calculate per-order extra: boxFee + (boxCutting ? 1 : 0) + tracking fee
-        const trackingFee = 3; // fixed tracking fee as requested
+        const trackingFee = 2; // fixed tracking fee as requested
         const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
 
         // Calculate item-wise packing fee using existing helper
@@ -1836,15 +1857,32 @@ const openMarkItemsDialog = (order) => {
     try {
       const pf = packingFeesByOrder && packingFeesByOrder[order.id] ? packingFeesByOrder[order.id] : null;
       if (pf) {
-        setOrderDetails(prev => ({
-          ...(prev || {}),
-          boxFee: pf.boxFee !== undefined ? pf.boxFee : prev?.boxFee,
-          boxCutting: pf.boxCutting !== undefined ? pf.boxCutting : prev?.boxCutting,
-          trackingFee: pf.trackingFee !== undefined ? pf.trackingFee : prev?.trackingFee,
-          totalPackingFee: pf.totalPackingFee !== undefined ? pf.totalPackingFee : prev?.totalPackingFee,
-          totalWeightKg: pf.totalWeightKg !== undefined ? pf.totalWeightKg : prev?.totalWeightKg,
-          packingDetails: pf.items && Array.isArray(pf.items) ? pf.items : prev?.packingDetails,
-        }));
+        setOrderDetails(prev => {
+          const existingAlloc = Array.isArray(prev?.packingDetails) ? prev.packingDetails : [];
+          const itemsFromPf = Array.isArray(pf.items) ? pf.items : [];
+          const mergedItems = itemsFromPf.length > 0 ? itemsFromPf.map(pfi => {
+            const match = existingAlloc.find(e => String(e.productId) === String(pfi.productId) || (e.name && pfi.name && String(e.name) === String(pfi.name)));
+            return {
+              productId: pfi.productId || match?.productId || '',
+              name: pfi.name || match?.name || '',
+              quantity: pfi.quantity ?? match?.quantity ?? 1,
+              itemPackingPerItem: pfi.itemPackingPerItem ?? pfi.estimatedTotalPerItem ?? 0,
+              transportationPerItem: pfi.transportationPerItem ?? 0,
+              warehousingPerItem: pfi.warehousingPerItem ?? 0,
+              lineTotal: pfi.lineTotal ?? 0,
+              allocations: match && Array.isArray(match.allocations) ? match.allocations : (pfi.allocations || []),
+            };
+          }) : (prev?.packingDetails || []);
+          return ({
+            ...(prev || {}),
+            boxFee: pf.boxFee !== undefined ? pf.boxFee : prev?.boxFee,
+            boxCutting: pf.boxCutting !== undefined ? pf.boxCutting : prev?.boxCutting,
+            trackingFee: pf.trackingFee !== undefined ? pf.trackingFee : prev?.trackingFee,
+            totalPackingFee: pf.totalPackingFee !== undefined ? pf.totalPackingFee : prev?.totalPackingFee,
+            totalWeightKg: pf.totalWeightKg !== undefined ? pf.totalWeightKg : prev?.totalWeightKg,
+            packingDetails: mergedItems,
+          });
+        });
       }
     } catch (e) {
       // noop
@@ -1883,9 +1921,24 @@ const openMarkItemsDialog = (order) => {
                   };
                 });
               }
+              // Merge pf items with any allocation metadata present on finalOrder.packingDetails
+              const existingAlloc = Array.isArray(finalOrder.packingDetails) ? finalOrder.packingDetails : [];
+              const mergedItems = (itemsFromPf || []).map(pfi => {
+                const match = existingAlloc.find(e => String(e.productId) === String(pfi.productId) || (e.name && pfi.name && String(e.name) === String(pfi.name)));
+                return {
+                  productId: pfi.productId || match?.productId || '',
+                  name: pfi.name || match?.name || '',
+                  quantity: pfi.quantity ?? match?.quantity ?? 1,
+                  itemPackingPerItem: pfi.itemPackingPerItem ?? pfi.estimatedTotalPerItem ?? pfi.estimatedTotalPerItem ?? 0,
+                  transportationPerItem: pfi.transportationPerItem ?? 0,
+                  warehousingPerItem: pfi.warehousingPerItem ?? 0,
+                  lineTotal: pfi.lineTotal ?? 0,
+                  allocations: match && Array.isArray(match.allocations) ? match.allocations : (pfi.allocations || []),
+                };
+              });
               finalOrder = {
                 ...finalOrder,
-                packingDetails: itemsFromPf || finalOrder.packingDetails || [],
+                packingDetails: mergedItems.length > 0 ? mergedItems : (finalOrder.packingDetails || []),
                 boxFee: pf.boxFee !== undefined ? pf.boxFee : finalOrder.boxFee,
                 boxCutting: pf.boxCutting !== undefined ? pf.boxCutting : finalOrder.boxCutting,
                 trackingFee: pf.trackingFee !== undefined ? pf.trackingFee : finalOrder.trackingFee,
@@ -1965,8 +2018,8 @@ const openMarkItemsDialog = (order) => {
     // Box and tracking fees
     const boxFeeVal = Number(o.boxFee) || 0;
     const boxCuttingVal = o.boxCutting ? 1 : 0; // boolean
-    const trackingFee = 3; // fixed ₹3 tracking fee per order
-                        const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
+    const trackingFee = 2; // fixed ₹2 tracking fee per order
+              const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
     const total = itemsFee + boxTotal;
     return isFinite(total) ? `₹${total.toFixed(2)}` : 'N/A';
   };
@@ -2077,7 +2130,7 @@ const openMarkItemsDialog = (order) => {
         totalPackingFee: Number(pf.totalPackingFee ?? pf.total ?? 0),
         boxFee: Number(pf.boxFee ?? pf.box_fee ?? 0) || 0,
         boxCutting: (pf.boxCutting ?? pf.box_cutting ?? pf.box_cut) ? true : false,
-        trackingFee: Number(pf.trackingFee ?? pf.tracking_fee ?? 3),
+        trackingFee: Number(pf.trackingFee ?? pf.tracking_fee ?? 2),
         totalWeightKg: pf.totalWeightKg !== undefined ? Number(pf.totalWeightKg) : (pf.total_weight_kg !== undefined ? Number(pf.total_weight_kg) : undefined),
         items: pf.items ?? pf.products ?? [],
         raw: pf
@@ -2188,26 +2241,32 @@ const openMarkItemsDialog = (order) => {
         const order = orders.find(o => o.id === id) || {};
         const finalCode = code || order.trackingCode || '';
         if (!finalCode) {
-          toast({ title: 'Error', description: `Tracking code required for order ${id}.`, variant: 'destructive' });
+          toast({ title: 'Error', description: `Tracking code required for ${order.customerName || id}.`, variant: 'destructive' });
           setIsTrackingCodeDialogOpen(true);
           return;
         }
         anySent = true;
+        // include selected courier partner if provided
+        const selectedCourier = selectedDeliveryPartners[id];
+        const updatePayload = { trackingCode: finalCode, status: 'dispatched', dispatchedAt };
+        if (selectedCourier) updatePayload.deliveryPartner = selectedCourier;
+
         if (typeof updateOrder === 'function') {
           try {
-            const saved = await updateOrder(id, { trackingCode: finalCode, status: 'dispatched', dispatchedAt });
+            const saved = await updateOrder(id, updatePayload);
             console.log('Dispatched order saved via updateOrder', id, saved);
             if (saved && typeof replaceOrder === 'function') replaceOrder(saved);
             if (orderDetails && orderDetails.id === id && saved) setOrderDetails(saved);
           } catch (err) {
             console.error('Failed updateOrder for dispatch', id, err);
+            // fallback to PATCH endpoints
             await fetch(`https://api.forvoq.com/api/orders/${id}/tracking-code`, {
               method: 'PATCH', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ trackingCode: finalCode }),
             });
             await fetch(`https://api.forvoq.com/api/orders/${id}`, {
               method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ status: 'dispatched', dispatchedAt }),
+              body: JSON.stringify(updatePayload),
             });
           }
         } else {
@@ -2217,7 +2276,7 @@ const openMarkItemsDialog = (order) => {
           });
           await fetch(`https://api.forvoq.com/api/orders/${id}`, {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'dispatched', dispatchedAt }),
+            body: JSON.stringify(updatePayload),
           });
         }
       }
@@ -2352,17 +2411,60 @@ const openMarkItemsDialog = (order) => {
             Provide tracking codes for the selected orders.
           </DialogDescription>
           <div className="space-y-4">
-            {selectedOrderIds.map((id) => (
-              <div key={id} className="flex items-center gap-2">
-                <Label htmlFor={`tracking-${id}`}>Order ID: {id}</Label>
-                <Input
-                  id={`tracking-${id}`}
-                  value={trackingCodes[id] || ''}
-                  onChange={(e) => setTrackingCodes((prev) => ({ ...prev, [id]: e.target.value }))}
-                  placeholder="Enter tracking code"
-                />
-              </div>
-            ))}
+            {selectedOrderIds.map((id) => {
+              const ord = orders.find(o => o.id === id) || {};
+              const showCourierSelect = !ord.deliveryPartner || String(ord.deliveryPartner).toLowerCase() === 'pending' || String(ord.deliveryPartner).toLowerCase() === 'tbd' || ord.deliveryPartner === '';
+              return (
+                <div key={id} className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="flex-1">
+                    <Label htmlFor={`tracking-${id}`}>Customer: {ord.customerName || id}</Label>
+                    <Input
+                      id={`tracking-${id}`}
+                      value={trackingCodes[id] || ''}
+                      onChange={(e) => setTrackingCodes((prev) => ({ ...prev, [id]: e.target.value }))}
+                      placeholder="Enter tracking code"
+                    />
+                  </div>
+                  {showCourierSelect && (
+                    <div className="w-48">
+                      <Label className="mb-1">Courier Partner</Label>
+                      <Select value={selectedDeliveryPartners[id] || ''} onValueChange={(v) => {
+                        setSelectedDeliveryPartners((p) => ({ ...p, [id]: v }));
+                        setTrackingCodes((prev) => {
+                          const cur = prev[id] || '';
+                          const autoVal = String(id);
+                          // If FORVOQ selected and no explicit code, prefill with order id
+                          if (v === 'forvoq' && (!cur || cur === '')) {
+                            return { ...prev, [id]: autoVal };
+                          }
+                          // If changed away from FORVOQ and the code equals the auto-filled id, remove it
+                          if (v !== 'forvoq' && cur === autoVal) {
+                            const copy = { ...prev };
+                            delete copy[id];
+                            return copy;
+                          }
+                          return prev;
+                        });
+                      }}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder={ord.deliveryPartner || 'Select courier'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="dtdc">DTDC</SelectItem>
+                          <SelectItem value="delhivery">Delhivery</SelectItem>
+                          <SelectItem value="ekart">Ekart</SelectItem>
+                          <SelectItem value="bluedart">BlueDart</SelectItem>
+                          <SelectItem value="india post">India Post</SelectItem>
+                          <SelectItem value="fedex">FedEx</SelectItem>
+                          <SelectItem value="forvoq">FORVOQ</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div className="flex justify-end gap-2 mt-4">
             <Button variant="outline" onClick={() => setIsTrackingCodeDialogOpen(false)}>Cancel</Button>
@@ -2571,14 +2673,45 @@ const openMarkItemsDialog = (order) => {
                             {orderDetails.packingDetails.map((it, idx) => {
                               const row = resolvePackingRow(it);
                               return (
-                                <tr key={idx} className="border-t border-gray-100">
-                                  <td className="py-3 text-base">{row.name}</td>
-                                  <td className="py-3 text-base">{row.quantity}</td>
-                                  <td className="py-3 text-base">₹{(Number(row.itemPackingPerItem || 0)).toFixed(2)}</td>
-                                  <td className="py-3 text-base">₹{(Number(row.transportationPerItem || 0)).toFixed(2)}</td>
-                                  <td className="py-3 text-base">₹{(Number(row.warehousingPerItem || 0)).toFixed(2)}</td>
-                                  <td className="py-3 text-base">₹{(Number(row.lineTotal || 0)).toFixed(2)}</td>
-                                </tr>
+                                <React.Fragment key={idx}>
+                                  <tr className="border-t border-gray-100">
+                                    <td className="py-3 text-base">{row.name}</td>
+                                    <td className="py-3 text-base">{row.quantity}</td>
+                                    <td className="py-3 text-base">₹{(Number(row.itemPackingPerItem || 0)).toFixed(2)}</td>
+                                    <td className="py-3 text-base">₹{(Number(row.transportationPerItem || 0)).toFixed(2)}</td>
+                                    <td className="py-3 text-base">₹{(Number(row.warehousingPerItem || 0)).toFixed(2)}</td>
+                                    <td className="py-3 text-base">₹{(Number(row.lineTotal || 0)).toFixed(2)}</td>
+                                  </tr>
+                                  {Array.isArray(it.allocations) && it.allocations.length > 0 ? (
+                                    <tr className="bg-gray-50">
+                                      <td colSpan={6} className="py-2 px-3 text-sm text-gray-700">
+                                        <div className="font-medium mb-1">Allocations</div>
+                                        <div className="overflow-x-auto">
+                                          <table className="w-full text-sm">
+                                            <thead>
+                                              <tr className="text-left text-xs text-gray-600">
+                                                <th className="pb-1">Inventory ID</th>
+                                                <th className="pb-1">Inbound Date</th>
+                                                <th className="pb-1">Expiry</th>
+                                                <th className="pb-1">Used</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {it.allocations.map((a, ai) => (
+                                                <tr key={ai} className="border-t border-gray-100">
+                                                  <td className="py-1 text-xs break-words">{a.inventoryId || a._id || a.inventory}</td>
+                                                  <td className="py-1 text-xs">{formatDateTime(a.sourceInboundDate || a.createdAt)}</td>
+                                                  <td className="py-1 text-xs">{a.expiryDate ? formatDateTime(a.expiryDate) : '-'}</td>
+                                                  <td className="py-1 text-xs">{a.used ?? a.quantity ?? '-'}</td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  ) : null}
+                                </React.Fragment>
                               );
                             })}
                           </tbody>
@@ -2600,6 +2733,17 @@ const openMarkItemsDialog = (order) => {
                                 <div className="flex justify-between"><span>Warehousing</span><span>₹{(Number(row.warehousingPerItem || 0)).toFixed(2)}</span></div>
                                 <div className="flex justify-between font-medium"><span>Line Total</span><span>₹{(Number(row.lineTotal || 0)).toFixed(2)}</span></div>
                               </div>
+                              {Array.isArray(it.allocations) && it.allocations.length > 0 ? (
+                                <div className="mt-3 border-t pt-2 text-sm text-gray-700">
+                                  <div className="font-medium mb-1">Allocations</div>
+                                  {(it.allocations || []).map((a, ai) => (
+                                    <div key={ai} className="flex justify-between">
+                                      <div className="truncate">{a.inventoryId || a._id || a.inventory}</div>
+                                      <div className="text-right">{formatDateTime(a.sourceInboundDate || a.createdAt)} {a.expiryDate ? ` • Exp: ${formatDateTime(a.expiryDate)}` : ''}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
                             </div>
                           );
                         })}
@@ -2609,7 +2753,7 @@ const openMarkItemsDialog = (order) => {
                     <div className="mt-3 border-t pt-2">
                       <div className="flex justify-between"><div>Box Fee</div><div>₹{(Number(orderDetails.boxFee) || 0).toFixed(2)}</div></div>
                       <div className="flex justify-between"><div>Box Cutting</div><div>₹{(orderDetails.boxCutting === true ? 2 : (Number(orderDetails.boxCutting) || 0)).toFixed(2)}</div></div>
-                      <div className="flex justify-between"><div>Tracking Fee</div><div>₹{(orderDetails.trackingFee !== undefined ? Number(orderDetails.trackingFee) : 3).toFixed(2)}</div></div>
+                      <div className="flex justify-between"><div>Tracking Fee</div><div>₹{(orderDetails.trackingFee !== undefined ? Number(orderDetails.trackingFee) : 2).toFixed(2)}</div></div>
                       <div className="flex justify-between font-semibold mt-2">
                         <div>Total (calc)</div>
                         <div>₹{(() => {
@@ -2623,7 +2767,7 @@ const openMarkItemsDialog = (order) => {
                               }, 0);
                           const box = Number(orderDetails.boxFee) || 0;
                           const cutting = orderDetails.boxCutting === true ? 2 : (Number(orderDetails.boxCutting) || 0);
-                          const track = orderDetails.trackingFee !== undefined ? Number(orderDetails.trackingFee) : 3;
+                          const track = orderDetails.trackingFee !== undefined ? Number(orderDetails.trackingFee) : 2;
                           return (itemsTotal + box + cutting + track).toFixed(2);
                         })()}</div>
                       </div>
@@ -2835,6 +2979,7 @@ const openMarkItemsDialog = (order) => {
               )}
               <Button variant="destructive" size="sm" onClick={groupDeleteSelected}>Delete Selected</Button>
               <Button variant="outline" size="sm" onClick={groupDownloadLabels}>Download Labels</Button>
+              <Button variant="outline" size="sm" onClick={groupDownloadManifest}>Download Manifest</Button>
               
               <Button variant="outline" size="sm" onClick={groupDispatch}>Dispatch</Button>
               <Button variant="outline" size="sm" onClick={groupMarkDelivered}>Mark Delivered</Button>

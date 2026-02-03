@@ -276,17 +276,22 @@ const Inbound = () => {
                                 onClick={() => {
                                   if (newLocation.buildingNumber && newLocation.location && newLocation.pincode && newLocation.phone) {
                                     const locationToSave = {
-                                      buildingNumber: newLocation.buildingNumber,
-                                      location: newLocation.location,
-                                      pincode: newLocation.pincode,
-                                      phone: newLocation.phone,
-                                      merchantId: currentUser?.id
-                                    };
-                                    addPickupLocation(locationToSave);
-                                    setInboundDetails(prev => ({
-                                      ...prev,
-                                      pickupLocation: `${locationToSave.buildingNumber}, ${locationToSave.location}, ${locationToSave.pincode}`
-                                    }));
+                                          buildingNumber: newLocation.buildingNumber,
+                                          location: newLocation.location,
+                                          pincode: newLocation.pincode,
+                                          phone: newLocation.phone,
+                                          merchantId: currentUser?.id
+                                        };
+                                        // await saving so we can use the saved object in inboundDetails
+                                        (async () => {
+                                          const saved = await addPickupLocation(locationToSave);
+                                          // addPickupLocation updates savedPickupLocations; saved may be undefined in some flows
+                                          const resolved = saved || locationToSave;
+                                          setInboundDetails(prev => ({
+                                            ...prev,
+                                            pickupLocation: resolved
+                                          }));
+                                        })();
                                     setNewLocation({ buildingNumber: '', location: '', pincode: '', phone: '' });
                                     setShowAddLocation(false);
                                     toast({ title: 'Pickup Location Added', description: 'New pickup location saved.' });
@@ -426,11 +431,14 @@ const Inbound = () => {
                           <Button
                             onClick={() => {
                               if (newDeliveryLocation.buildingNumber && newDeliveryLocation.location && newDeliveryLocation.pincode && newDeliveryLocation.phone) {
-                                addPickupLocation({ ...newDeliveryLocation, merchantId: currentUser?.id });
-                                setInboundDetails(prev => ({
-                                  ...prev,
-                                  deliveryLocation: `${newDeliveryLocation.buildingNumber}, ${newDeliveryLocation.location}, ${newDeliveryLocation.pincode}`
-                                }));
+                                (async () => {
+                                  const saved = await addPickupLocation({ ...newDeliveryLocation, merchantId: currentUser?.id });
+                                  const resolved = saved || { ...newDeliveryLocation, merchantId: currentUser?.id };
+                                  setInboundDetails(prev => ({
+                                    ...prev,
+                                    deliveryLocation: resolved
+                                  }));
+                                })();
                                 setNewDeliveryLocation({ buildingNumber: '', location: '', pincode: '', phone: '' });
                                 setShowAddDeliveryLocation(false);
                                 toast({ title: 'Delivery Location Added', description: 'New delivery location saved.' });

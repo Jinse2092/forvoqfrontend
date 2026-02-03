@@ -255,6 +255,9 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
   const [packingFeesByOrder, setPackingFeesByOrder] = useState({});
   const packingFeesFetchedRef = useRef(false);
 
+  // Hide detailed price breakup in merchant UI. Set to true to re-enable display.
+  const showPriceBreakup = false;
+
   useEffect(() => {
     const check = () => setIsMobileView(typeof window !== 'undefined' && window.innerWidth < 640);
     check();
@@ -418,12 +421,12 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         console.log('Merchant: packing fees batch response', json);
         if (json && json.map) {
           const normalized = Object.fromEntries(Object.entries(json.map).map(([k, v]) => {
-            if (typeof v === 'number') {
+              if (typeof v === 'number') {
               return [k, {
                 totalPackingFee: Number(v),
                 boxFee: 0,
                 boxCutting: false,
-                trackingFee: 3,
+                trackingFee: 2,
                 totalWeightKg: undefined,
                 raw: v
               }];
@@ -435,7 +438,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
               totalPackingFee,
               boxFee,
               boxCutting,
-              trackingFee: Number(v.trackingFee ?? v.tracking_fee ?? 3),
+              trackingFee: Number(v.trackingFee ?? v.tracking_fee ?? 2),
               totalWeightKg: v.totalWeightKg !== undefined ? Number(v.totalWeightKg) : (v.total_weight_kg !== undefined ? Number(v.total_weight_kg) : undefined),
               items: v.items ?? v.products ?? v.map?.items ?? [],
               raw: v
@@ -1114,7 +1117,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                         }, 0);
                         const boxFeeVal = Number(order.boxFee) || 0;
                         const boxCuttingVal = order.boxCutting ? 1 : 0;
-                        const trackingFee = 3;
+                        const trackingFee = 2;
                         const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
                         return itemsFee + boxTotal;
                       })();
@@ -1260,7 +1263,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                         }, 0);
                         const boxFeeVal = Number(order.boxFee) || 0;
                         const boxCuttingVal = order.boxCutting ? 1 : 0;
-                        const trackingFee = 3;
+                        const trackingFee = 2;
                         const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
                         return itemsFee + boxTotal;
                       })();
@@ -1350,7 +1353,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                         }, 0);
                         const boxFeeVal = Number(order.boxFee) || 0;
                         const boxCuttingVal = order.boxCutting ? 1 : 0;
-                        const trackingFee = 3;
+                        const trackingFee = 2;
                         const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
                         return itemsFee + boxTotal;
                       })();
@@ -1440,7 +1443,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                         }, 0);
                         const boxFeeVal = Number(order.boxFee) || 0;
                         const boxCuttingVal = order.boxCutting ? 1 : 0;
-                        const trackingFee = 3;
+                        const trackingFee = 2;
                         const boxTotal = boxFeeVal + (boxCuttingVal ? 1 : 0) + trackingFee;
                         return itemsFee + boxTotal;
                       })();
@@ -1794,6 +1797,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                   ))}
                 </div>
               </div>
+              {showPriceBreakup && (
               <div>
                 <div className="font-medium">Price Breakup</div>
                 <div className="text-gray-700">
@@ -1853,7 +1857,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                   <div className="mt-3 border-t pt-2">
                     <div className="flex justify-between"><div>Box Fee</div><div>₹{(Number(selectedOrderForModal.boxFee) || 0).toFixed(2)}</div></div>
                     <div className="flex justify-between"><div>Box Cutting</div><div>₹{(selectedOrderForModal.boxCutting === true ? 2 : (Number(selectedOrderForModal.boxCutting) || 0)).toFixed(2)}</div></div>
-                    <div className="flex justify-between"><div>Tracking Fee</div><div>₹{(selectedOrderForModal.trackingFee !== undefined ? Number(selectedOrderForModal.trackingFee) : 3).toFixed(2)}</div></div>
+                    <div className="flex justify-between"><div>Tracking Fee</div><div>₹{(selectedOrderForModal.trackingFee !== undefined ? Number(selectedOrderForModal.trackingFee) : 2).toFixed(2)}</div></div>
                     <div className="flex justify-between font-semibold mt-2">
                       <div>Total (calc)</div>
                       <div>₹{(() => {
@@ -1865,7 +1869,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                         }, 0);
                         const box = Number(selectedOrderForModal.boxFee) || 0;
                         const cutting = selectedOrderForModal.boxCutting === true ? 2 : (Number(selectedOrderForModal.boxCutting) || 0);
-                        const track = selectedOrderForModal.trackingFee !== undefined ? Number(selectedOrderForModal.trackingFee) : 3;
+                        const track = selectedOrderForModal.trackingFee !== undefined ? Number(selectedOrderForModal.trackingFee) : 2;
                         return (itemsTotal + box + cutting + track).toFixed(2);
                       })()}</div>
                     </div>
@@ -1878,6 +1882,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
                   </div>
                 </div>
               </div>
+              )}
             </div>
           ) : (
             <div className="mt-4">No order selected</div>
