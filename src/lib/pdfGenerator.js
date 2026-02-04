@@ -217,21 +217,26 @@ export async function generateManifestPDF(entries = []) {
       if (!first) doc.addPage();
       first = false;
 
+      // Header positions (introduce explicit line break between merchant and order)
+      const headerY = 50 * FONT_SCALE;
+      const orderY = headerY + (16 * FONT_SCALE); // line break below merchant name
+      const dateY = orderY + (16 * FONT_SCALE);
+
       doc.setFontSize(14 * FONT_SCALE);
       doc.setFont(undefined, 'bold');
-      doc.text(merchant.companyName || merchant.name || 'Merchant', margin, 50 * FONT_SCALE);
+      doc.text(merchant.companyName || merchant.name || 'Merchant', margin, headerY);
       doc.setFontSize(11 * FONT_SCALE);
       doc.setFont(undefined, 'normal');
-      if (merchant.address) doc.text(String(merchant.address), margin, 66 * FONT_SCALE);
+      if (merchant.address) doc.text(String(merchant.address), margin, headerY + (16 * FONT_SCALE));
 
-      // Order header
+      // Order header (placed below merchant name)
       doc.setFontSize(12 * FONT_SCALE);
       doc.setFont(undefined, 'bold');
-      doc.text(`Order: ${order.id || order.name || ''}`, pageWidth - margin - 220 * FONT_SCALE, 50 * FONT_SCALE);
+      doc.text(`Order: ${order.id || order.name || ''}`, pageWidth - margin - 220 * FONT_SCALE, orderY);
       doc.setFont(undefined, 'normal');
       const created = order.created_at || order.createdAt || order.date || '';
       const createdStr = created ? new Date(created).toLocaleString() : '';
-      if (createdStr) doc.text(`Date: ${createdStr}`, pageWidth - margin - 220 * FONT_SCALE, 66 * FONT_SCALE);
+      if (createdStr) doc.text(`Date: ${createdStr}`, pageWidth - margin - 220 * FONT_SCALE, dateY);
 
       // Customer
       let y = 100 * FONT_SCALE;
