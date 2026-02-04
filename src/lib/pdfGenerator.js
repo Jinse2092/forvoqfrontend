@@ -206,7 +206,7 @@ export async function generateManifestPDF(entries = []) {
     const pageHeight = doc.internal.pageSize.getHeight();
 
     // Scale factor for fonts (300% = 3x)
-    const FONT_SCALE = 3;
+    const FONT_SCALE = 2;
     const baseLineHeight = 12 * FONT_SCALE;
 
     let first = true;
