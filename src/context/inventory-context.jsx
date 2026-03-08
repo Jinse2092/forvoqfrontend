@@ -72,7 +72,7 @@ export const InventoryProvider = ({ children }) => {
       };
 
       // Add city and state dynamically to orders
-      const ordersWithCityState = results[3].map(order => {
+      const ordersWithCityState = results[3].orders.map(order => {
         // Use city and state from order if present, else parse from address
         const city = order.city || parseCityState(order.address).city;
         const state = order.state || parseCityState(order.address).state;
