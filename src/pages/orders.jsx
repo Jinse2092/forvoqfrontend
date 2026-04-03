@@ -396,6 +396,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
   });
 
   // Fetch packing fee totals for non-pending orders (batch). Runs once per page load.
+  // Batches requests to avoid URL length limits (414 error)
   useEffect(() => {
     if (packingFeesFetchedRef.current) return;
     const idsToFetch = (filteredOrders || []).filter(o => String(o.status || '').toLowerCase() !== 'pending' && packingFeesByOrder[o.id] === undefined).map(o => o.id);
@@ -405,49 +406,69 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
     }
     (async () => {
       try {
-        const q = idsToFetch.join(',');
         const isLocalDev = typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && window.location.port === '5173';
         const apiBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
           ? import.meta.env.VITE_API_BASE
           : (isLocalDev ? 'https://api.forvoq.com' : 'https://api.forvoq.com');
-        const url = `${apiBase}/api/packingfees?orderIds=${encodeURIComponent(q)}`;
-        console.log('Merchant: fetching packing fees batch from', url);
-        const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok) {
-          packingFeesFetchedRef.current = true;
-          return;
+        
+        // Split into batches of 50 to avoid URL length limits
+        const batchSize = 50;
+        const batches = [];
+        for (let i = 0; i < idsToFetch.length; i += batchSize) {
+          batches.push(idsToFetch.slice(i, i + batchSize));
         }
-        const json = await res.json();
-        console.log('Merchant: packing fees batch response', json);
-        if (json && json.map) {
-          const normalized = Object.fromEntries(Object.entries(json.map).map(([k, v]) => {
-              if (typeof v === 'number') {
-              return [k, {
-                totalPackingFee: Number(v),
-                boxFee: 0,
-                boxCutting: false,
-                trackingFee: 2,
-                totalWeightKg: undefined,
-                raw: v
-              }];
+        
+        const allResults = {};
+        for (const batch of batches) {
+          const q = batch.join(',');
+          const url = `${apiBase}/api/packingfees?orderIds=${encodeURIComponent(q)}`;
+          console.log(`Admin: fetching packing fees batch (${batch.length} orders) from ${url.substring(0, 100)}...`);
+          
+          try {
+            const res = await fetch(url, { cache: 'no-store' });
+            if (!res.ok) {
+              console.warn(`Admin: batch fetch returned ${res.status}`);
+              continue;
             }
-            const boxFee = Number(v.boxFee ?? v.box_fee ?? 0) || 0;
-            const boxCutting = (v.boxCutting ?? v.box_cutting ?? v.box_cut) ? true : false;
-            const totalPackingFee = v.totalPackingFee !== undefined ? Number(v.totalPackingFee) : (v.total !== undefined ? Number(v.total) : undefined);
-            return [k, {
-              totalPackingFee,
-              boxFee,
-              boxCutting,
-              trackingFee: Number(v.trackingFee ?? v.tracking_fee ?? 2),
-              totalWeightKg: v.totalWeightKg !== undefined ? Number(v.totalWeightKg) : (v.total_weight_kg !== undefined ? Number(v.total_weight_kg) : undefined),
-              items: v.items ?? v.products ?? v.map?.items ?? [],
-              raw: v
-            }];
-          }));
-          setPackingFeesByOrder(prev => ({ ...prev, ...normalized }));
+            const json = await res.json();
+            console.log('Admin: packing fees batch response received', Object.keys(json?.map || {}).length, 'orders');
+            if (json && json.map) {
+              const normalized = Object.fromEntries(Object.entries(json.map).map(([k, v]) => {
+                if (typeof v === 'number') {
+                  return [k, {
+                    totalPackingFee: Number(v),
+                    boxFee: 0,
+                    boxCutting: false,
+                    trackingFee: 2,
+                    totalWeightKg: undefined,
+                    raw: v
+                  }];
+                }
+                const boxFee = Number(v.boxFee ?? v.box_fee ?? 0) || 0;
+                const boxCutting = (v.boxCutting ?? v.box_cutting ?? v.box_cut) ? true : false;
+                const totalPackingFee = v.totalPackingFee !== undefined ? Number(v.totalPackingFee) : (v.total !== undefined ? Number(v.total) : undefined);
+                return [k, {
+                  totalPackingFee,
+                  boxFee,
+                  boxCutting,
+                  trackingFee: Number(v.trackingFee ?? v.tracking_fee ?? 2),
+                  totalWeightKg: v.totalWeightKg !== undefined ? Number(v.totalWeightKg) : (v.total_weight_kg !== undefined ? Number(v.total_weight_kg) : undefined),
+                  items: v.items ?? v.products ?? v.map?.items ?? [],
+                  raw: v
+                }];
+              }));
+              Object.assign(allResults, normalized);
+            }
+          } catch (batchError) {
+            console.error('Error fetching batch:', batchError);
+          }
+        }
+        
+        if (Object.keys(allResults).length > 0) {
+          setPackingFeesByOrder(prev => ({ ...prev, ...allResults }));
         }
       } catch (e) {
-        // ignore
+        console.error('Error in packing fees fetch:', e);
       } finally {
         packingFeesFetchedRef.current = true;
       }
@@ -897,7 +918,7 @@ import { StatusTimelineDropdown } from '../components/StatusTimelineDropdown.jsx
         const data = {
           shop: { name: currentUser?.companyName || 'My Shop', email: currentUser?.email || '', phone: currentUser?.phone || '', address: currentUser?.address || '', website: currentUser?.website || '' },
           order: { name: order.id, created_at: order.createdAt, po_number: order.poNumber || '', total_quantity, total_amount: orderItems.reduce((s, it) => s + (it.total || 0), 0) },
-          shipping_address: { name: order.customerName || '', address1: addressParts[0] || '', address2: addressParts.slice(1).join(', ') || '', city_province_zip: `${order.city || ''}, ${order.state || ''} ${order.pincode || ''}`, country: 'India', phone: order.phone || '' },
+          shipping_address: { name: order.customerName || '', address1: addressParts[0] || '', address2: addressParts.slice(1).join(', ') || '', city_province_zip: `${order.city || ''}, ${order.state || ''} ${order.pincode || ''}`, country: 'INDIA', phone: order.phone || '' },
           items: orderItems,
           line_items: orderItems,
           fulfillment: { line_items: orderItems },

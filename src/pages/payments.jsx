@@ -35,16 +35,23 @@ const PaymentsPanel = () => {
     if (currentUser?.role === 'merchant' && currentUser?.id) {
       fetch(`https://api.forvoq.com/api/received-payments?merchantId=${currentUser.id}`)
         .then(res => res.json())
-        .then(data => setReceivedPayments(data));
+        .then(data => setReceivedPayments(Array.isArray(data) ? data : []));
     } else if (currentUser?.role === 'admin') {
       fetch('https://api.forvoq.com/api/received-payments')
         .then(res => res.json())
-        .then(data => setReceivedPayments(data.sort((a, b) => new Date(b.date) - new Date(a.date))));
+        .then(data => {
+          const payments = Array.isArray(data) ? data : [];
+          setReceivedPayments(payments.sort((a, b) => new Date(b.date) - new Date(a.date)));
+        });
     }
     // Fetch orders so we can show order details for dispatch_fee rows
     fetch('https://api.forvoq.com/api/orders')
       .then(res => res.json())
-      .then(data => setOrders(data || []))
+      .then(data => {
+        // Handle both array and object responses from the API
+        const ordersList = Array.isArray(data) ? data : (data?.orders || data?.data || []);
+        setOrders(ordersList);
+      })
       .catch(() => setOrders([]));
   }, [currentUser]);
 
@@ -69,7 +76,11 @@ const PaymentsPanel = () => {
   };
 
   // Set of order ids that are returns so we can exclude related transactions
-  const returnOrderIds = new Set((orders || []).filter(isReturnOrder).map(o => o.id).filter(Boolean));
+  const returnOrderIds = new Set(
+    Array.isArray(orders) 
+      ? (orders || []).filter(isReturnOrder).map(o => o.id).filter(Boolean)
+      : []
+  );
 
   // Helper: parse order id from notes (e.g., 'Packing & Dispatch fee for order ord-1748019804350')
   const parseOrderId = (notes = '') => {
@@ -130,7 +141,7 @@ const PaymentsPanel = () => {
   };
 
   // Filter out return orders from orders list used for payments/tables
-  const filteredOrders = (orders || []).filter(o => !isReturnOrder(o));
+  const filteredOrders = Array.isArray(orders) ? (orders || []).filter(o => !isReturnOrder(o)) : [];
 
   // Build a map of orders by id for quick lookup (excluding returns)
   const ordersMap = filteredOrders.reduce((acc, o) => {
@@ -140,9 +151,11 @@ const PaymentsPanel = () => {
 
   // Build table rows directly from the `orders` collection. The backend `/api/orders`
   // aggregates the packingFees document into each order (field `packingFee` and `packingDetails`).
-  const visibleOrders = currentUser?.role === 'merchant' && currentUser?.id
-    ? filteredOrders.filter(o => o.merchantId === currentUser.id)
-    : filteredOrders;
+  const visibleOrders = Array.isArray(filteredOrders)
+    ? (currentUser?.role === 'merchant' && currentUser?.id
+        ? filteredOrders.filter(o => o.merchantId === currentUser.id)
+        : filteredOrders)
+    : [];
 
   const tableRows = (visibleOrders || []).map(o => {
     const pd = o.packingDetails || o.packingdetails || o.packing_details;
@@ -299,14 +312,22 @@ const PaymentsPanel = () => {
     XLSX.writeFile(workbook, `received_payments.xlsx`);
   };
 
-  // Fetch packingFees docs for visible orders so we can display detailed breakdowns
+  // Fetch packingFees docs only for orders missing detailed breakdowns
   useEffect(() => {
-    const ids = (visibleOrders || []).map(o => o.id).filter(Boolean);
-    if (ids.length === 0) {
+    const idsNeedingFetch = (visibleOrders || [])
+      .filter(o => {
+        // Skip if packing details already present in order
+        const pd = o.packingDetails || o.packingdetails || o.packing_details;
+        return o.id && !pd;
+      })
+      .map(o => o.id);
+
+    if (idsNeedingFetch.length === 0) {
       setPackingFeesMap({});
       return;
     }
-    Promise.all(ids.map(id =>
+
+    Promise.all(idsNeedingFetch.map(id =>
       fetch(`https://api.forvoq.com/api/packingfees/${id}`)
         .then(res => res.ok ? res.json() : null)
         .then(data => ({ id, data }))
@@ -316,7 +337,7 @@ const PaymentsPanel = () => {
       results.forEach(r => { if (r && r.id && r.data) map[r.id] = r.data; });
       setPackingFeesMap(map);
     }).catch(() => setPackingFeesMap({}));
-  }, [visibleOrders]);
+  }, [visibleOrders.length, currentUser?.id]);
 
   return (
     <div className="p-2 sm:p-6 space-y-6">

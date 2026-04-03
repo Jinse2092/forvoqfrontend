@@ -606,7 +606,7 @@ const AdminOrders = () => {
           city: order.city || '', 
           province: order.state || '', 
           zip: order.pincode || order.pin || '', 
-          country: order.country || 'India', 
+          country: order.country || 'INDIA', 
           phone: order.phone || order.mobile || '' 
         },
         items: (order.items || []).map(i => ({
@@ -1365,7 +1365,7 @@ const openMarkItemsDialog = (order) => {
             city: order.city || '', 
             province: order.state || '', 
             zip: order.pincode || order.pin || '', 
-            country: order.country || 'India', 
+            country: order.country || 'INDIA', 
             phone: order.phone || order.mobile || '' 
           },
           items: (order.items || []).map(i => ({
@@ -2454,7 +2454,7 @@ const openMarkItemsDialog = (order) => {
                           <SelectItem value="delhivery">Delhivery</SelectItem>
                           <SelectItem value="ekart">Ekart</SelectItem>
                           <SelectItem value="bluedart">BlueDart</SelectItem>
-                          <SelectItem value="india post">India Post</SelectItem>
+                          <SelectItem value="INDIA post">INDIA Post</SelectItem>
                           <SelectItem value="fedex">FedEx</SelectItem>
                           <SelectItem value="forvoq">FORVOQ</SelectItem>
                           <SelectItem value="other">Other</SelectItem>

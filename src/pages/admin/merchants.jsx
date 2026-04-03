@@ -216,7 +216,7 @@ const AdminMerchants = () => {
 
     previewBtn.onclick = () => {
       const v = textarea.value || '';
-      const sample = { shop: { name: merchant.companyName || '' }, order: { name: 'SAMPLE_ORDER', created_at: new Date().toLocaleString() }, shipping_address: { name: 'John Doe', address1: '123 Main St', city_province_zip: 'City, State 12345', country: 'India', phone: '9999999999' }, items: [{ title: 'Sample Item', quantity: 1 }] };
+      const sample = { shop: { name: merchant.companyName || '' }, order: { name: 'SAMPLE_ORDER', created_at: new Date().toLocaleString() }, shipping_address: { name: 'John Doe', address1: '123 Main St', city_province_zip: 'City, State 12345', country: 'INDIA', phone: '9999999999' }, items: [{ title: 'Sample Item', quantity: 1 }] };
       const rendered = renderTemplate(v, { 'shop.name': sample.shop.name, 'order.name': sample.order.name, shop: sample.shop, order: sample.order, shipping_address: sample.shipping_address, items: sample.items });
       const pw = window.open('', '_blank'); if (!pw) { alert('Popup blocked'); return; }
       pw.document.open(); pw.document.write(rendered); pw.document.close();
@@ -224,7 +224,7 @@ const AdminMerchants = () => {
 
     printBtn.onclick = () => {
       const v = textarea.value || '';
-      const sample = { shop: { name: merchant.companyName || '' }, order: { name: 'SAMPLE_ORDER', created_at: new Date().toLocaleString() }, shipping_address: { name: 'John Doe', address1: '123 Main St', city_province_zip: 'City, State 12345', country: 'India', phone: '9999999999' }, items: [{ title: 'Sample Item', quantity: 1 }] };
+      const sample = { shop: { name: merchant.companyName || '' }, order: { name: 'SAMPLE_ORDER', created_at: new Date().toLocaleString() }, shipping_address: { name: 'John Doe', address1: '123 Main St', city_province_zip: 'City, State 12345', country: 'INDIA', phone: '9999999999' }, items: [{ title: 'Sample Item', quantity: 1 }] };
       const rendered = renderTemplate(v, { 'shop.name': sample.shop.name, 'order.name': sample.order.name, shop: sample.shop, order: sample.order, shipping_address: sample.shipping_address, items: sample.items });
       const pw = window.open('', '_blank'); if (!pw) { alert('Popup blocked'); return; }
       pw.document.open(); pw.document.write(rendered); pw.document.close();
